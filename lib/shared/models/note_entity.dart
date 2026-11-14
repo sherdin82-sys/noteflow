@@ -1,0 +1,81 @@
+class NoteEntity {
+  final String id;
+  final String title;
+  final String content;
+  final String? folderId;
+  final bool isPinned;
+  final bool isArchived;
+  final bool isChecklist;
+  final int colorIndex;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+
+  const NoteEntity({
+    required this.id,
+    required this.title,
+    required this.content,
+    this.folderId,
+    this.isPinned = false,
+    this.isArchived = false,
+    this.isChecklist = false,
+    this.colorIndex = 0,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  NoteEntity copyWith({
+    String? id,
+    String? title,
+    String? content,
+    String? folderId,
+    bool? isPinned,
+    bool? isArchived,
+    bool? isChecklist,
+    int? colorIndex,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) {
+    return NoteEntity(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      content: content ?? this.content,
+      folderId: folderId ?? this.folderId,
+      isPinned: isPinned ?? this.isPinned,
+      isArchived: isArchived ?? this.isArchived,
+      isChecklist: isChecklist ?? this.isChecklist,
+      colorIndex: colorIndex ?? this.colorIndex,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'title': title,
+      'content': content,
+      'folder_id': folderId,
+      'is_pinned': isPinned ? 1 : 0,
+      'is_archived': isArchived ? 1 : 0,
+      'is_checklist': isChecklist ? 1 : 0,
+      'color_index': colorIndex,
+      'created_at': createdAt.toIso8601String(),
+      'updated_at': updatedAt.toIso8601String(),
+    };
+  }
+
+  factory NoteEntity.fromMap(Map<String, dynamic> map) {
+    return NoteEntity(
+      id: map['id'] as String,
+      title: map['title'] as String? ?? '',
+      content: map['content'] as String? ?? '',
+      folderId: map['folder_id'] as String?,
+      isPinned: (map['is_pinned'] as int? ?? 0) == 1,
+      isArchived: (map['is_archived'] as int? ?? 0) == 1,
+      isChecklist: (map['is_checklist'] as int? ?? 0) == 1,
+      colorIndex: map['color_index'] as int? ?? 0,
+      createdAt: DateTime.tryParse(map['created_at'] as String? ?? '') ?? DateTime.now(),
+      updatedAt: DateTime.tryParse(map['updated_at'] as String? ?? '') ?? DateTime.now(),
+    );
+  }
+}

@@ -1,0 +1,231 @@
+import 'package:flutter/material.dart';
+import '../../../../core/constants/app_constants.dart';
+import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_typography.dart';
+import '../../../../core/utils/date_formatter.dart';
+import '../../../../core/utils/note_helper.dart';
+import '../../../../shared/models/note_entity.dart';
+import '../../../../shared/models/folder_entity.dart';
+
+class NoteCard extends StatelessWidget {
+  final NoteEntity note;
+  final FolderEntity? folder;
+  final VoidCallback onTap;
+  final VoidCallback onTogglePin;
+  final VoidCallback onToggleArchive;
+  final VoidCallback onDelete;
+
+  const NoteCard({
+    super.key,
+    required this.note,
+    this.folder,
+    required this.onTap,
+    required this.onTogglePin,
+    required this.onToggleArchive,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    // Pick card tint
+    final colorList = isDark ? AppColors.darkNoteColors : AppColors.lightNoteColors;
+    final cardColor = note.colorIndex < colorList.length
+        ? colorList[note.colorIndex]
+        : (isDark ? AppColors.darkSurface : AppColors.lightSurface);
+
+    final borderColor = isDark ? AppColors.darkBorder : AppColors.lightBorder;
+    final primaryTextColor = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
+    final secondaryTextColor = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+    final subtleTextColor = isDark ? AppColors.darkTextTertiary : AppColors.lightTextTertiary;
+
+    final plainSnippet = NoteHelper.extractPlainText(note.content);
+
+    return Material(
+      color: cardColor,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
+        side: BorderSide(color: borderColor, width: 1.0),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
+        child: Padding(
+          padding: const EdgeInsets.all(AppConstants.paddingMedium),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Header Row: Title & Pin/Menu
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Text(
+                      note.title.isNotEmpty ? note.title : 'Untitled Note',
+                      style: AppTypography.titleMedium(primaryTextColor),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (note.isPinned)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 6),
+                      child: Icon(
+                        Icons.push_pin,
+                        size: 16,
+                        color: AppColors.pinColor,
+                      ),
+                    ),
+                  const SizedBox(width: 4),
+                  _buildOptionsMenu(context),
+                ],
+              ),
+
+              if (plainSnippet.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  plainSnippet,
+                  style: AppTypography.bodyMedium(secondaryTextColor),
+                  maxLines: 4,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+
+              const SizedBox(height: 12),
+
+              // Footer: Folder badge & Date
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  if (folder != null)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: (isDark ? Colors.white : Colors.black).withAlpha(15),
+                        borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.folder_outlined,
+                            size: 12,
+                            color: subtleTextColor,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            folder!.name,
+                            style: AppTypography.labelSmall(subtleTextColor),
+                          ),
+                        ],
+                      ),
+                    )
+                  else if (note.isChecklist)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: AppColors.accent.withAlpha(25),
+                        borderRadius: BorderRadius.circular(AppConstants.radiusSmall),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.check_box_outlined,
+                            size: 12,
+                            color: AppColors.accent,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Checklist',
+                            style: AppTypography.labelSmall(AppColors.accent),
+                          ),
+                        ],
+                      ),
+                    )
+                  else
+                    const SizedBox.shrink(),
+
+                  Text(
+                    DateFormatter.formatSmart(note.updatedAt),
+                    style: AppTypography.labelSmall(subtleTextColor),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOptionsMenu(BuildContext context) {
+    return SizedBox(
+      width: 24,
+      height: 24,
+      child: PopupMenuButton<String>(
+        padding: EdgeInsets.zero,
+        icon: const Icon(Icons.more_vert, size: 18),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
+        ),
+        onSelected: (value) {
+          switch (value) {
+            case 'pin':
+              onTogglePin();
+              break;
+            case 'archive':
+              onToggleArchive();
+              break;
+            case 'delete':
+              onDelete();
+              break;
+          }
+        },
+        itemBuilder: (context) => [
+          PopupMenuItem(
+            value: 'pin',
+            child: Row(
+              children: [
+                Icon(
+                  note.isPinned ? Icons.push_pin_outlined : Icons.push_pin,
+                  size: 18,
+                  color: note.isPinned ? null : AppColors.pinColor,
+                ),
+                const SizedBox(width: 10),
+                Text(note.isPinned ? 'Unpin' : 'Pin note'),
+              ],
+            ),
+          ),
+          PopupMenuItem(
+            value: 'archive',
+            child: Row(
+              children: [
+                Icon(
+                  note.isArchived ? Icons.unarchive_outlined : Icons.archive_outlined,
+                  size: 18,
+                ),
+                const SizedBox(width: 10),
+                Text(note.isArchived ? 'Unarchive' : 'Archive'),
+              ],
+            ),
+          ),
+          const PopupMenuDivider(),
+          PopupMenuItem(
+            value: 'delete',
+            child: Row(
+              children: const [
+                Icon(Icons.delete_outline, size: 18, color: AppColors.danger),
+                SizedBox(width: 10),
+                Text('Delete', style: TextStyle(color: AppColors.danger)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
