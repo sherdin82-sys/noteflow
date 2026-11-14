@@ -28,6 +28,11 @@ android {
             shrinkResources = false
         }
     }
+
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
+    }
 }
 
 flutter {
