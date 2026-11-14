@@ -7,6 +7,7 @@ import '../../../core/theme/theme_provider.dart';
 import '../../../core/database/database_provider.dart';
 import '../../../shared/models/note_entity.dart';
 import '../../../shared/models/folder_entity.dart';
+import '../../../shared/models/note_filter.dart';
 import '../../../shared/widgets/empty_state_view.dart';
 import '../providers/home_notes_provider.dart';
 import 'widgets/home_header.dart';
