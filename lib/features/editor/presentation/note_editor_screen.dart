@@ -16,12 +16,14 @@ import 'widgets/note_stats_modal.dart';
 
 class NoteEditorScreen extends ConsumerStatefulWidget {
   final String? noteId;
+  final NoteEntity? initialNote;
   final String? initialFolderId;
   final bool isChecklist;
 
   const NoteEditorScreen({
     super.key,
     this.noteId,
+    this.initialNote,
     this.initialFolderId,
     this.isChecklist = false,
   });
@@ -36,7 +38,7 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
   Timer? _autoSaveTimer;
 
   late NoteEntity _currentNote;
-  bool _isLoading = true;
+  bool _isLoading = false;
   bool _isSaving = false;
   String _saveStatus = 'Saved';
   final _uuid = const Uuid();
@@ -44,34 +46,43 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
   @override
   void initState() {
     super.initState();
-    _titleController = TextEditingController();
-    _contentController = TextEditingController();
-    _initNote();
-  }
-
-  Future<void> _initNote() async {
-    final repo = ref.read(noteRepositoryProvider);
     final now = DateTime.now();
 
-    if (widget.noteId != null) {
-      final existing = await repo.getNoteById(widget.noteId!);
-      if (existing != null) {
-        _currentNote = existing;
-      } else {
-        _currentNote = _createDefaultNote(now);
-      }
-    } else {
+    if (widget.initialNote != null) {
+      _currentNote = widget.initialNote!;
+      _isLoading = false;
+    } else if (widget.noteId == null) {
       _currentNote = _createDefaultNote(now);
-      // Immediately commit initial creation
-      await repo.saveNote(_currentNote);
+      _isLoading = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          ref.read(noteRepositoryProvider).saveNote(_currentNote);
+        }
+      });
+    } else {
+      _isLoading = true;
+      _initExistingNote();
     }
 
+    _titleController = TextEditingController(text: _isLoading ? '' : _currentNote.title);
+    _contentController = TextEditingController(text: _isLoading ? '' : _currentNote.content);
+  }
+
+  Future<void> _initExistingNote() async {
+    final repo = ref.read(noteRepositoryProvider);
+    final existing = await repo.getNoteById(widget.noteId!);
+    if (existing != null) {
+      _currentNote = existing;
+    } else {
+      _currentNote = _createDefaultNote(DateTime.now());
+    }
     _titleController.text = _currentNote.title;
     _contentController.text = _currentNote.content;
-
-    setState(() {
-      _isLoading = false;
-    });
+    if (mounted) {
+      setState(() {
+        _isLoading = false;
+      });
+    }
   }
 
   NoteEntity _createDefaultNote(DateTime now) {

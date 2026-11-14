@@ -34,15 +34,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     super.dispose();
   }
 
-  void _navigateToEditor({String? noteId, bool isChecklist = false}) {
+  void _navigateToEditor({NoteEntity? note, String? noteId, bool isChecklist = false}) {
     final filterState = ref.read(noteFilterProvider);
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => NoteEditorScreen(
-          noteId: noteId,
-          initialFolderId: filterState.selectedFolderId,
-          isChecklist: isChecklist,
+          noteId: note?.id ?? noteId,
+          initialNote: note,
+          initialFolderId: note?.folderId ?? filterState.selectedFolderId,
+          isChecklist: note?.isChecklist ?? isChecklist,
         ),
       ),
     );
@@ -173,7 +174,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                               child: NoteCard(
                                 note: note,
                                 folder: note.folderId != null ? folderMap[note.folderId] : null,
-                                onTap: () => _navigateToEditor(noteId: note.id),
+                                onTap: () => _navigateToEditor(note: note),
                                 onTogglePin: () => repo.togglePin(note.id),
                                 onToggleArchive: () => repo.toggleArchive(note.id),
                                 onDelete: () => _confirmDelete(note),
@@ -194,7 +195,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                               child: NoteCard(
                                 note: note,
                                 folder: note.folderId != null ? folderMap[note.folderId] : null,
-                                onTap: () => _navigateToEditor(noteId: note.id),
+                                onTap: () => _navigateToEditor(note: note),
                                 onTogglePin: () => repo.togglePin(note.id),
                                 onToggleArchive: () => repo.toggleArchive(note.id),
                                 onDelete: () => _confirmDelete(note),

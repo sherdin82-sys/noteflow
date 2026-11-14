@@ -137,15 +137,20 @@ class LocalNoteRepository implements NoteRepository {
   }
 
   @override
-  Stream<List<NoteEntity>> watchNotes({bool includeArchived = false, String? folderId}) {
-    return _notesStreamController.stream.map((notes) {
+  Stream<List<NoteEntity>> watchNotes({bool includeArchived = false, String? folderId}) async* {
+    List<NoteEntity> filterNotes(List<NoteEntity> notes) {
       return notes.where((note) {
         if (!includeArchived && note.isArchived) return false;
         if (includeArchived && !note.isArchived) return false;
         if (folderId != null && note.folderId != folderId) return false;
         return true;
       }).toList();
-    });
+    }
+
+    final sorted = List<NoteEntity>.from(_notes)
+      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    yield filterNotes(sorted);
+    yield* _notesStreamController.stream.map(filterNotes);
   }
 
   @override
@@ -202,8 +207,9 @@ class LocalNoteRepository implements NoteRepository {
   }
 
   @override
-  Stream<List<FolderEntity>> watchFolders() {
-    return _foldersStreamController.stream;
+  Stream<List<FolderEntity>> watchFolders() async* {
+    yield List.unmodifiable(_folders);
+    yield* _foldersStreamController.stream;
   }
 
   @override

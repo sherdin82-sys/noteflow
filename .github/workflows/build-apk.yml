@@ -43,13 +43,13 @@ jobs:
           echo "flutter.sdk=$FLUTTER_ROOT" > android/local.properties
           echo "sdk.dir=$ANDROID_HOME" >> android/local.properties
 
-      - name: Build Android Debug APK
-        run: flutter build apk --debug --android-skip-build-dependency-validation
+      - name: Build Android Release APK
+        run: flutter build apk --release --split-per-abi --android-skip-build-dependency-validation
 
-      - name: Upload Debug APK Artifact
+      - name: Upload Release APKs Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: NoteFlow-debug-apk
-          path: build/app/outputs/flutter-apk/app-debug.apk
+          name: NoteFlow-release-apk
+          path: build/app/outputs/flutter-apk/app-*-release.apk
           if-no-files-found: error
           retention-days: 30
