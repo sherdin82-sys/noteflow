@@ -39,6 +39,11 @@ jobs:
       - name: Run Core Verification Tests
         run: dart run test/unit/noteflow_core_test.dart
 
+      - name: Configure local.properties
+        run: |
+          echo "flutter.sdk=$FLUTTER_ROOT" > android/local.properties
+          echo "sdk.dir=$ANDROID_HOME" >> android/local.properties
+
       - name: Build Android Debug APK
         run: flutter build apk --debug
 
