@@ -9,6 +9,8 @@ class HomeHeader extends StatelessWidget {
   final ValueChanged<String> onSearchChanged;
   final VoidCallback onClearSearch;
   final VoidCallback onToggleTheme;
+  final VoidCallback onOpenFolders;
+  final VoidCallback onOpenArchive;
   final ValueChanged<NoteSortOrder> onSortChanged;
   final NoteSortOrder currentSort;
   final bool isDark;
@@ -19,6 +21,8 @@ class HomeHeader extends StatelessWidget {
     required this.onSearchChanged,
     required this.onClearSearch,
     required this.onToggleTheme,
+    required this.onOpenFolders,
+    required this.onOpenArchive,
     required this.onSortChanged,
     required this.currentSort,
     required this.isDark,
@@ -73,6 +77,26 @@ class HomeHeader extends StatelessWidget {
               ),
               Row(
                 children: [
+                  // Folders Screen
+                  IconButton(
+                    icon: Icon(
+                      Icons.folder_outlined,
+                      size: 20,
+                      color: secondaryTextColor,
+                    ),
+                    tooltip: 'Manage Folders',
+                    onPressed: onOpenFolders,
+                  ),
+                  // Archive Screen
+                  IconButton(
+                    icon: Icon(
+                      Icons.archive_outlined,
+                      size: 20,
+                      color: secondaryTextColor,
+                    ),
+                    tooltip: 'Archived Notes',
+                    onPressed: onOpenArchive,
+                  ),
                   // Theme Mode Switcher
                   IconButton(
                     icon: Icon(

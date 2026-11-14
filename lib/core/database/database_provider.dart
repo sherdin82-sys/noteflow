@@ -8,9 +8,7 @@ import '../../shared/models/folder_entity.dart';
 final noteRepositoryProvider = Provider<NoteRepository>((ref) {
   final repo = LocalNoteRepository(seedDemoData: true);
   ref.onDispose(() {
-    if (repo is LocalNoteRepository) {
-      repo.dispose();
-    }
+    (repo as dynamic).dispose?.call();
   });
   return repo;
 });

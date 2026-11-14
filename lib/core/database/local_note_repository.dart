@@ -223,7 +223,7 @@ class LocalNoteRepository implements NoteRepository {
     // Unassign notes in this folder
     for (int i = 0; i < _notes.length; i++) {
       if (_notes[i].folderId == id) {
-        _notes[i] = _notes[i].copyWith(folderId: null);
+        _notes[i] = _notes[i].copyWith(clearFolder: true);
       }
     }
     _emitFolders();

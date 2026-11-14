@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_colors.dart';
-import '../../../core/theme/app_typography.dart';
 import '../../../core/theme/theme_provider.dart';
 import '../../../core/database/database_provider.dart';
 import '../../../shared/models/note_entity.dart';
@@ -13,6 +12,9 @@ import '../providers/home_notes_provider.dart';
 import 'widgets/home_header.dart';
 import 'widgets/folder_filter_bar.dart';
 import 'widgets/note_card.dart';
+import '../../editor/presentation/note_editor_screen.dart';
+import '../../archive/presentation/archive_screen.dart';
+import '../../folders/presentation/folders_screen.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -31,38 +33,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     super.dispose();
   }
 
-  void _createNewNote({bool isChecklist = false}) async {
+  void _navigateToEditor({String? noteId, bool isChecklist = false}) {
     final filterState = ref.read(noteFilterProvider);
-    final repo = ref.read(noteRepositoryProvider);
-    final now = DateTime.now();
-
-    final newNote = NoteEntity(
-      id: _uuid.v4(),
-      title: isChecklist ? 'New Checklist' : 'New Note',
-      content: isChecklist ? '[ ] First task\n[ ] Second task' : '',
-      folderId: filterState.selectedFolderId,
-      isPinned: false,
-      isArchived: false,
-      isChecklist: isChecklist,
-      colorIndex: 0,
-      createdAt: now,
-      updatedAt: now,
-    );
-
-    await repo.saveNote(newNote);
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(isChecklist ? 'Checklist created' : 'New note created'),
-          duration: const Duration(seconds: 2),
-          action: SnackBarAction(
-            label: 'Dismiss',
-            onPressed: () {},
-          ),
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => NoteEditorScreen(
+          noteId: noteId,
+          initialFolderId: filterState.selectedFolderId,
+          isChecklist: isChecklist,
         ),
-      );
-    }
+      ),
+    );
   }
 
   void _showCreateFolderDialog() {
@@ -123,7 +105,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // Top Header: Branding, Search & Actions
+            // Top Header: Branding, Search, Folders, Archive, Theme & Sort Actions
             HomeHeader(
               searchController: _searchController,
               isDark: isDark,
@@ -134,6 +116,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 filterNotifier.setSearchQuery('');
               },
               onToggleTheme: () => ref.read(themeModeProvider.notifier).toggleTheme(),
+              onOpenFolders: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const FoldersScreen()),
+              ),
+              onOpenArchive: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ArchiveScreen()),
+              ),
               onSortChanged: (sort) => filterNotifier.setSortOrder(sort),
             ),
 
@@ -151,7 +141,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
             const SizedBox(height: 12),
 
-            // Main Note List / Grid View
+            // Main Note List View
             Expanded(
               child: homeNotesAsync.when(
                 data: (data) {
@@ -164,7 +154,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
                   return RefreshIndicator(
                     onRefresh: () async {
-                      // Trigger reactive refresh
                       ref.invalidate(activeNotesStreamProvider);
                     },
                     child: ListView(
@@ -183,7 +172,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                               child: NoteCard(
                                 note: note,
                                 folder: note.folderId != null ? folderMap[note.folderId] : null,
-                                onTap: () => _openNotePreview(note),
+                                onTap: () => _navigateToEditor(noteId: note.id),
                                 onTogglePin: () => repo.togglePin(note.id),
                                 onToggleArchive: () => repo.toggleArchive(note.id),
                                 onDelete: () => _confirmDelete(note),
@@ -204,7 +193,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                               child: NoteCard(
                                 note: note,
                                 folder: note.folderId != null ? folderMap[note.folderId] : null,
-                                onTap: () => _openNotePreview(note),
+                                onTap: () => _navigateToEditor(noteId: note.id),
                                 onTogglePin: () => repo.togglePin(note.id),
                                 onToggleArchive: () => repo.toggleArchive(note.id),
                                 onDelete: () => _confirmDelete(note),
@@ -275,7 +264,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         title: 'Folder is empty',
         description: 'You haven\'t added any notes to this folder yet.',
         actionLabel: 'Create Note Here',
-        onAction: () => _createNewNote(),
+        onAction: () => _navigateToEditor(),
       );
     }
 
@@ -284,7 +273,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       title: 'No notes yet',
       description: 'Capture your thoughts, ideas, and tasks with pure offline privacy.',
       actionLabel: 'Create First Note',
-      onAction: () => _createNewNote(),
+      onAction: () => _navigateToEditor(),
     );
   }
 
@@ -310,10 +299,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   child: const Icon(Icons.description_outlined, color: AppColors.primary),
                 ),
                 title: const Text('Text Note', style: TextStyle(fontWeight: FontWeight.w600)),
-                subtitle: const Text('Rich text, thoughts, and meeting summaries'),
+                subtitle: const Text('Rich text, thoughts, and formatting'),
                 onTap: () {
                   Navigator.pop(bottomContext);
-                  _createNewNote(isChecklist: false);
+                  _navigateToEditor(isChecklist: false);
                 },
               ),
               ListTile(
@@ -329,79 +318,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 subtitle: const Text('To-do list with interactive checkboxes'),
                 onTap: () {
                   Navigator.pop(bottomContext);
-                  _createNewNote(isChecklist: true);
+                  _navigateToEditor(isChecklist: true);
                 },
               ),
             ],
           ),
         ),
       ),
-    );
-  }
-
-  void _openNotePreview(NoteEntity note) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(AppConstants.radiusLarge)),
-      ),
-      builder: (modalContext) {
-        return DraggableScrollableSheet(
-          initialChildSize: 0.7,
-          minChildSize: 0.4,
-          maxChildSize: 0.95,
-          expand: false,
-          builder: (_, scrollController) {
-            final isDark = Theme.of(context).brightness == Brightness.dark;
-            return Padding(
-              padding: const EdgeInsets.all(AppConstants.paddingLarge),
-              child: ListView(
-                controller: scrollController,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Expanded(
-                        child: Text(
-                          note.title,
-                          style: AppTypography.titleLarge(
-                            isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary,
-                          ),
-                        ),
-                      ),
-                      IconButton(
-                        icon: Icon(
-                          note.isPinned ? Icons.push_pin : Icons.push_pin_outlined,
-                          color: note.isPinned ? AppColors.pinColor : null,
-                        ),
-                        onPressed: () {
-                          ref.read(noteRepositoryProvider).togglePin(note.id);
-                          Navigator.pop(modalContext);
-                        },
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Updated ${note.updatedAt.toLocal()}',
-                    style: AppTypography.labelSmall(
-                      isDark ? AppColors.darkTextTertiary : AppColors.lightTextTertiary,
-                    ),
-                  ),
-                  const Divider(height: 24),
-                  Text(
-                    note.content,
-                    style: AppTypography.bodyLarge(
-                      isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary,
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
     );
   }
 
