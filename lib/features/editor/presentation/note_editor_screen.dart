@@ -290,6 +290,88 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
     );
   }
 
+  Future<void> _archiveCurrentNote() async {
+    _autoSaveTimer?.cancel();
+    _isDeleted = true; // Mark true so PopScope/dispose will not re-save unarchived state
+
+    final title = _titleController.text.trim();
+    final String contentToSave;
+    if (_currentNote.isChecklist) {
+      contentToSave = _currentNote.content;
+    } else {
+      contentToSave = jsonEncode(_quillController.document.toDelta().toJson());
+    }
+
+    final plainText = NoteHelper.extractPlainText(contentToSave).trim();
+
+    // If new note and completely empty, discard without saving to archive
+    if (!_isNotePersisted && title.isEmpty && plainText.isEmpty) {
+      if (mounted) Navigator.of(context).pop();
+      return;
+    }
+
+    final updated = _currentNote.copyWith(
+      title: _titleController.text,
+      content: contentToSave,
+      isArchived: true,
+      isPinned: false, // Unpin on archive
+      updatedAt: DateTime.now(),
+    );
+
+    _currentNote = updated;
+    await ref.read(noteRepositoryProvider).saveNote(updated);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Note archived')),
+      );
+      Navigator.of(context).pop();
+    }
+  }
+
+  void _confirmDelete() {
+    final noteTitle = _titleController.text.trim().isNotEmpty
+        ? _titleController.text.trim()
+        : (_currentNote.title.isNotEmpty ? _currentNote.title : 'Untitled Note');
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
+        ),
+        title: const Text('Delete Note'),
+        content: Text('Are you sure you want to permanently delete "$noteTitle"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.danger,
+            ),
+            onPressed: () async {
+              _isDeleted = true;
+              _autoSaveTimer?.cancel();
+              if (_isNotePersisted) {
+                await ref.read(noteRepositoryProvider).deleteNote(_currentNote.id);
+              }
+              if (dialogContext.mounted) Navigator.pop(dialogContext);
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Note deleted permanently')),
+                );
+                Navigator.of(context).pop();
+              }
+            },
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -315,7 +397,9 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
       canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
-        await _saveNoteImmediate();
+        if (!_isDeleted) {
+          await _saveNoteImmediate();
+        }
         if (mounted) {
           Navigator.of(context).pop();
         }
@@ -328,7 +412,9 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
           leading: IconButton(
             icon: const Icon(Icons.arrow_back_rounded),
             onPressed: () async {
-              await _saveNoteImmediate();
+              if (!_isDeleted) {
+                await _saveNoteImmediate();
+              }
               if (mounted) Navigator.of(context).pop();
             },
           ),
@@ -401,16 +487,10 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                     _copyToClipboard();
                     break;
                   case 'archive':
-                    final newArchivedState = !_currentNote.isArchived;
-                    _currentNote = _currentNote.copyWith(isArchived: newArchivedState);
-                    await ref.read(noteRepositoryProvider).toggleArchive(_currentNote.id);
-                    if (context.mounted) Navigator.pop(context);
+                    await _archiveCurrentNote();
                     break;
                   case 'delete':
-                    _isDeleted = true;
-                    _autoSaveTimer?.cancel();
-                    await ref.read(noteRepositoryProvider).deleteNote(_currentNote.id);
-                    if (context.mounted) Navigator.pop(context);
+                    _confirmDelete();
                     break;
                 }
               },

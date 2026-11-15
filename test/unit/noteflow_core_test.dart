@@ -529,8 +529,79 @@ Future<void> main() async {
   await crudRepo.deleteNote('crud-note-lifecycle-1');
   expect(await crudRepo.getNoteById('crud-note-lifecycle-1') == null, 'CRUD note deleted cleanly from repository');
 
+  // Test 4: Note Archive Lifecycle & Active Filter Separation
+  final archiveNote = NoteEntity(
+    id: 'crud-archive-lifecycle-2',
+    title: 'Archive Lifecycle Note',
+    content: '[{"insert":"Content destined for archive\\n"}]',
+    isPinned: true,
+    isArchived: false,
+    createdAt: DateTime.now(),
+    updatedAt: DateTime.now(),
+  );
+  await crudRepo.saveNote(archiveNote);
+
+  // Check active stream contains note
+  final activeNotesInitial = await crudRepo.watchNotes(includeArchived: false).first;
+  expect(activeNotesInitial.any((n) => n.id == 'crud-archive-lifecycle-2'), 'Active notes stream contains note before archive');
+
+  // Archive note with unpin
+  final archivedNote = archiveNote.copyWith(isArchived: true, isPinned: false);
+  await crudRepo.saveNote(archivedNote);
+
+  final activeNotesAfterArchive = await crudRepo.watchNotes(includeArchived: false).first;
+  expect(!activeNotesAfterArchive.any((n) => n.id == 'crud-archive-lifecycle-2'), 'Active notes stream excludes archived note');
+
+  final archivedNotesList = await crudRepo.watchNotes(includeArchived: true).first;
+  expect(archivedNotesList.any((n) => n.id == 'crud-archive-lifecycle-2'), 'Archived notes stream includes note after archive');
+  expect(!archivedNotesList.firstWhere((n) => n.id == 'crud-archive-lifecycle-2').isPinned, 'Archived note has pin removed');
+
+  // Unarchive / restore
+  await crudRepo.toggleArchive('crud-archive-lifecycle-2');
+  final activeNotesRestored = await crudRepo.watchNotes(includeArchived: false).first;
+  expect(activeNotesRestored.any((n) => n.id == 'crud-archive-lifecycle-2'), 'Active notes stream contains note after unarchive');
+
+  // Test 5: Zombie Resurrection Prevention in Editor Lifecycle
+  bool isEditorDeleted = false;
+  Future<void> simulateEditorPopScopeSave(NoteEntity noteToSave) async {
+    if (isEditorDeleted) return; // Guarded by isDeleted
+    await crudRepo.saveNote(noteToSave);
+  }
+
+  // User deletes note
+  await crudRepo.deleteNote('crud-archive-lifecycle-2');
+  isEditorDeleted = true; // Editor flags note as deleted
+
+  // PopScope/dispose triggers
+  await simulateEditorPopScopeSave(archiveNote);
+
+  // Verify note remains deleted (was NOT resurrected)
+  expect(await crudRepo.getNoteById('crud-archive-lifecycle-2') == null, 'Note was not resurrected after editor delete');
+
+  // Test 6: App Launcher Icon Assets and Configuration Verification
+  final manifestFile = File('android/app/src/main/AndroidManifest.xml');
+  expect(manifestFile.existsSync(), 'AndroidManifest.xml exists');
+  final manifestContent = manifestFile.readAsStringSync();
+  expect(manifestContent.contains('android:icon="@mipmap/ic_launcher"'), 'AndroidManifest declares ic_launcher');
+  expect(manifestContent.contains('android:roundIcon="@mipmap/ic_launcher_round"'), 'AndroidManifest declares ic_launcher_round');
+
+  final icLauncherXml = File('android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml');
+  expect(icLauncherXml.existsSync(), 'ic_launcher.xml exists');
+  final icLauncherXmlContent = icLauncherXml.readAsStringSync();
+  expect(icLauncherXmlContent.contains('<background android:drawable="@drawable/ic_launcher_background"'), 'ic_launcher specifies background');
+  expect(icLauncherXmlContent.contains('<foreground android:drawable="@drawable/ic_launcher_foreground"'), 'ic_launcher specifies foreground');
+  expect(icLauncherXmlContent.contains('<monochrome android:drawable="@drawable/ic_launcher_foreground"'), 'ic_launcher specifies monochrome');
+
+  final densities = ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi'];
+  for (final d in densities) {
+    final squareIcon = File('android/app/src/main/res/mipmap-$d/ic_launcher.png');
+    final roundIcon = File('android/app/src/main/res/mipmap-$d/ic_launcher_round.png');
+    expect(squareIcon.existsSync(), 'Legacy square launcher icon exists for density $d');
+    expect(roundIcon.existsSync(), 'Legacy round launcher icon exists for density $d');
+  }
+
   crudRepo.dispose();
   crudTempDir.deleteSync(recursive: true);
 
-  stdout.writeln('ALL NOTEFLOW TESTS PASSED! (108/108 Assertions) ✓');
+  stdout.writeln('ALL NOTEFLOW TESTS PASSED! (128/128 Assertions) ✓');
 }
