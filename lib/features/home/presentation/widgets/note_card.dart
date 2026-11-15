@@ -96,7 +96,7 @@ class NoteCard extends StatelessWidget {
               if (note.isChecklist) ...[
                 const SizedBox(height: 8),
                 _buildChecklistPreview(
-                  note.content,
+                  NoteHelper.formatForEditor(note.content),
                   isDark,
                   primaryTextColor,
                   secondaryTextColor,

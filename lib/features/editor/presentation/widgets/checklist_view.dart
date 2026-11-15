@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 import '../../../../core/constants/app_constants.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/utils/note_helper.dart';
 
 class ChecklistItem {
   final String id;
@@ -65,7 +66,8 @@ class _ChecklistViewState extends State<ChecklistView> {
 
   void _parseRawContent(String content) {
     _items.clear();
-    final lines = content.split('\n');
+    final formatted = NoteHelper.formatForEditor(content);
+    final lines = formatted.split('\n');
     for (final line in lines) {
       final trimmed = line.trim();
       if (trimmed.isEmpty) continue;

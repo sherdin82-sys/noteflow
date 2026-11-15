@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 import '../../../../core/constants/app_constants.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_typography.dart';
+import '../../../../core/utils/note_helper.dart';
 import '../../../../core/database/database_provider.dart';
 import '../../../../shared/models/note_entity.dart';
 import '../../../../shared/models/folder_entity.dart';
@@ -49,7 +50,15 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
     final now = DateTime.now();
 
     if (widget.initialNote != null) {
-      _currentNote = widget.initialNote!;
+      var note = widget.initialNote!;
+      if (NoteHelper.isDeltaContent(note.content)) {
+        final isChecklist = note.isChecklist || NoteHelper.isChecklistContent(note.content);
+        note = note.copyWith(
+          content: NoteHelper.formatForEditor(note.content),
+          isChecklist: isChecklist,
+        );
+      }
+      _currentNote = note;
       _isLoading = false;
     } else if (widget.noteId == null) {
       _currentNote = _createDefaultNote(now);
@@ -65,19 +74,31 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
     }
 
     _titleController = TextEditingController(text: _isLoading ? '' : _currentNote.title);
-    _contentController = TextEditingController(text: _isLoading ? '' : _currentNote.content);
+    _contentController = TextEditingController(
+      text: _isLoading ? '' : NoteHelper.formatForEditor(_currentNote.content),
+    );
   }
 
   Future<void> _initExistingNote() async {
     final repo = ref.read(noteRepositoryProvider);
     final existing = await repo.getNoteById(widget.noteId!);
     if (existing != null) {
-      _currentNote = existing;
+      var note = existing;
+      if (NoteHelper.isDeltaContent(note.content)) {
+        final isChecklist = note.isChecklist || NoteHelper.isChecklistContent(note.content);
+        note = note.copyWith(
+          content: NoteHelper.formatForEditor(note.content),
+          isChecklist: isChecklist,
+        );
+        // Persist cleaned note immediately so raw Delta JSON is sanitized in database
+        await repo.saveNote(note);
+      }
+      _currentNote = note;
     } else {
       _currentNote = _createDefaultNote(DateTime.now());
     }
     _titleController.text = _currentNote.title;
-    _contentController.text = _currentNote.content;
+    _contentController.text = NoteHelper.formatForEditor(_currentNote.content);
     if (mounted) {
       setState(() {
         _isLoading = false;

@@ -59,6 +59,44 @@ Future<void> main() async {
   final words = NoteHelper.wordCount('Three simple words');
   expect(words == 3, 'Word count is 3');
 
+  // Quill Delta detection tests
+  expect(NoteHelper.isDeltaContent(jsonDelta) == true, 'Delta JSON is recognized as delta');
+  expect(NoteHelper.isDeltaContent('Plain markdown content') == false, 'Plain text is not delta');
+  expect(NoteHelper.isDeltaContent('[ ] Plain checkbox item') == false, 'Plain checkbox is not delta');
+  expect(NoteHelper.isDeltaContent('') == false, 'Empty string is not delta');
+
+  // Checklist detection tests
+  expect(NoteHelper.isChecklistContent('[ ] First task\n[x] Done task') == true, 'Markdown checklist detected');
+  expect(NoteHelper.isChecklistContent('Just a regular note with paragraphs') == false, 'Regular note not checklist');
+  const deltaChecklist = '[{"insert":"Groceries"},{"insert":"\\n","attributes":{"list":"unchecked"}},{"insert":"Laundry"},{"insert":"\\n","attributes":{"list":"checked"}}]';
+  expect(NoteHelper.isChecklistContent(deltaChecklist) == true, 'Delta JSON checklist detected');
+  expect(NoteHelper.isChecklistContent(jsonDelta) == false, 'Plain Delta JSON not checklist');
+
+  // formatForEditor conversion tests (Critical Rich Text Editor Bug fix)
+  final plainUnchanged = NoteHelper.formatForEditor('Existing plain text\nWith multiple lines');
+  expect(plainUnchanged == 'Existing plain text\nWith multiple lines', 'Plain text is preserved unchanged');
+
+  final simpleDeltaFormatted = NoteHelper.formatForEditor('[{"insert":"Hello World\\n"}]');
+  expect(simpleDeltaFormatted == 'Hello World', 'Simple Delta converted to plain text without JSON syntax');
+  expect(!simpleDeltaFormatted.contains('{"insert"'), 'No raw JSON syntax in formatted editor text');
+
+  const formattedDeltaJson = '[{"insert":"Title "},{"insert":"bold text","attributes":{"bold":true}},{"insert":" and "},{"insert":"italic text","attributes":{"italic":true}},{"insert":"\\n"}]';
+  final formattedMarkdown = NoteHelper.formatForEditor(formattedDeltaJson);
+  expect(formattedMarkdown == 'Title **bold text** and *italic text*', 'Inline bold and italic converted to markdown');
+
+  const headerDeltaJson = '[{"insert":"Meeting Notes"},{"insert":"\\n","attributes":{"header":1}},{"insert":"Action items"},{"insert":"\\n","attributes":{"header":2}}]';
+  final headerFormatted = NoteHelper.formatForEditor(headerDeltaJson);
+  expect(headerFormatted == '# Meeting Notes\n## Action items', 'Quill headers converted to markdown headers');
+
+  final checklistFormatted = NoteHelper.formatForEditor(deltaChecklist);
+  expect(checklistFormatted == '[ ] Groceries\n[x] Laundry', 'Quill checklist ops converted to [ ] and [x] items');
+
+  const literalBugJson = '[{"insert":"Project Kickoff\\n"},{"insert":"1. Define Scope\\n","attributes":{"list":"ordered"}},{"insert":"Review deadline"},{"insert":"\\n","attributes":{"list":"unchecked"}}]';
+  final fixedBugText = NoteHelper.formatForEditor(literalBugJson);
+  expect(!fixedBugText.contains('[{"'), 'Fixed bug text does not have raw JSON array bracket syntax');
+  expect(!fixedBugText.contains('{"insert"'), 'Fixed bug text does not have {"insert"');
+  expect(fixedBugText.contains('[ ] Review deadline'), 'Checklist line properly converted');
+
   // --- Suite 3: DateFormatter ---
   final smartNow = DateFormatter.formatSmart(DateTime.now());
   expect(smartNow == 'Just now', 'Smart now format');
@@ -216,5 +254,5 @@ Future<void> main() async {
   // Clean up temp file
   tempDir.deleteSync(recursive: true);
 
-  stdout.writeln('ALL NOTEFLOW MILESTONE 1 & 2 TESTS PASSED! (24/24 Assertions) ✓');
+  stdout.writeln('ALL NOTEFLOW TESTS PASSED! (39/39 Assertions) ✓');
 }
