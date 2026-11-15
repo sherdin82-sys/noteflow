@@ -103,7 +103,7 @@ class NoteCard extends StatelessWidget {
                   secondaryTextColor,
                   subtleTextColor,
                 ),
-              } else if (note.content.trim().isNotEmpty) ...[
+              ] else if (note.content.trim().isNotEmpty) ...[
                 const SizedBox(height: 8),
                 RichNotePreview(
                   content: note.content,
