@@ -392,5 +392,104 @@ Future<void> main() async {
   // Clean up temp file
   tempDir.deleteSync(recursive: true);
 
-  stdout.writeln('ALL NOTEFLOW TESTS PASSED! (76/76 Assertions) ✓');
+  // --- Suite 6: Acceptance Tests — Four-Line Rich Text Note Verification ---
+  // Note content:
+  // Line 1: Hello (bold)
+  // Line 2: Hello (italic)
+  // Line 3: Hello (underline)
+  // Line 4: Normal text
+  final acceptanceDeltaJson = jsonEncode([
+    {'insert': 'Hello', 'attributes': {'bold': true}},
+    {'insert': '\n'},
+    {'insert': 'Hello', 'attributes': {'italic': true}},
+    {'insert': '\n'},
+    {'insert': 'Hello', 'attributes': {'underline': true}},
+    {'insert': '\n'},
+    {'insert': 'Normal text\n'},
+  ]);
+
+  // Acceptance Test 1: Editor deserialization and formatting reproduction
+  final editorFormattedText = NoteHelper.formatForEditor(acceptanceDeltaJson);
+  expect(editorFormattedText.contains('**Hello**'), 'Editor formats line 1 with bold markdown representation');
+  expect(editorFormattedText.contains('*Hello*'), 'Editor formats line 2 with italic markdown representation');
+  expect(editorFormattedText.contains('<u>Hello</u>'), 'Editor formats line 3 with underline markdown representation');
+  expect(editorFormattedText.contains('Normal text'), 'Editor preserves line 4 normal text');
+
+  // Acceptance Test 2: Home screen preview preserves all formatting
+  final previewLines = NoteHelper.parseToRichLines(acceptanceDeltaJson);
+  expect(previewLines.length == 4, 'Preview has exactly 4 lines');
+  expect(previewLines[0].spans.any((s) => s.text == 'Hello' && s.isBold), 'Preview Line 1 preserves bold formatting');
+  expect(previewLines[1].spans.any((s) => s.text == 'Hello' && s.isItalic), 'Preview Line 2 preserves italic formatting');
+  expect(previewLines[2].spans.any((s) => s.text == 'Hello' && s.isUnderline), 'Preview Line 3 preserves underline formatting');
+  expect(previewLines[3].spans.any((s) => s.text == 'Normal text' && !s.isBold && !s.isItalic && !s.isUnderline), 'Preview Line 4 preserves unstyled normal text');
+
+  // Acceptance Test 3: Closing and reopening the app preserves formatting (persistence)
+  final acceptanceNote = NoteEntity(
+    id: 'acceptance-note-1',
+    title: 'Acceptance Note',
+    content: acceptanceDeltaJson,
+    createdAt: DateTime.now(),
+    updatedAt: DateTime.now(),
+  );
+
+  final acceptanceTempDir = Directory.systemTemp.createTempSync('noteflow_acceptance_');
+  final acceptanceDbPath = '${acceptanceTempDir.path}/noteflow_data.json';
+  final persistRepo1 = LocalNoteRepository(
+    enableDiskPersistence: true,
+    customStoragePath: acceptanceDbPath,
+  );
+  await persistRepo1.init();
+  await persistRepo1.saveNote(acceptanceNote);
+  persistRepo1.dispose();
+
+  // Reopen app by hydrating new repo instance from disk
+  final persistRepo2 = LocalNoteRepository(
+    enableDiskPersistence: true,
+    customStoragePath: acceptanceDbPath,
+  );
+  await persistRepo2.init();
+  final reloadedAcceptance = await persistRepo2.getNoteById('acceptance-note-1');
+  expect(reloadedAcceptance != null, 'Acceptance note persisted and reloaded from disk');
+  expect(reloadedAcceptance!.content == acceptanceDeltaJson, 'Reloaded note preserves exact Delta JSON payload');
+
+  final reloadedPreviewLines = NoteHelper.parseToRichLines(reloadedAcceptance.content);
+  expect(reloadedPreviewLines[0].spans.any((s) => s.isBold), 'Reloaded note preview preserves Line 1 bold');
+  expect(reloadedPreviewLines[1].spans.any((s) => s.isItalic), 'Reloaded note preview preserves Line 2 italic');
+  expect(reloadedPreviewLines[2].spans.any((s) => s.isUnderline), 'Reloaded note preview preserves Line 3 underline');
+
+  // Acceptance Test 4: Archived notes preserve formatting
+  await persistRepo2.toggleArchive('acceptance-note-1');
+  final archivedAcceptance = await persistRepo2.getNoteById('acceptance-note-1');
+  expect(archivedAcceptance != null && archivedAcceptance.isArchived, 'Acceptance note archived');
+  final archivedPreviewLines = NoteHelper.parseToRichLines(archivedAcceptance!.content);
+  expect(archivedPreviewLines.length == 4, 'Archived note preview preserves 4 lines');
+  expect(archivedPreviewLines[0].spans.any((s) => s.isBold), 'Archived note preview preserves bold');
+  expect(archivedPreviewLines[1].spans.any((s) => s.isItalic), 'Archived note preview preserves italic');
+  expect(archivedPreviewLines[2].spans.any((s) => s.isUnderline), 'Archived note preview preserves underline');
+
+  // Acceptance Test 5: Editing an existing formatted note does not remove its formatting
+  final acceptanceEditedDeltaJson = jsonEncode([
+    {'insert': 'Hello', 'attributes': {'bold': true}},
+    {'insert': '\n'},
+    {'insert': 'Hello', 'attributes': {'italic': true}},
+    {'insert': '\n'},
+    {'insert': 'Hello', 'attributes': {'underline': true}},
+    {'insert': '\n'},
+    {'insert': 'Normal text and edited additions\n'},
+  ]);
+  final editedAcceptance = archivedAcceptance.copyWith(content: acceptanceEditedDeltaJson, updatedAt: DateTime.now());
+  await persistRepo2.saveNote(editedAcceptance);
+
+  final fetchedEdited = await persistRepo2.getNoteById('acceptance-note-1');
+  expect(fetchedEdited != null, 'Edited note retrieved');
+  final editedPreviewLines = NoteHelper.parseToRichLines(fetchedEdited!.content);
+  expect(editedPreviewLines[0].spans.any((s) => s.isBold), 'Edited note retains bold on line 1');
+  expect(editedPreviewLines[1].spans.any((s) => s.isItalic), 'Edited note retains italic on line 2');
+  expect(editedPreviewLines[2].spans.any((s) => s.isUnderline), 'Edited note retains underline on line 3');
+  expect(editedPreviewLines[3].plainText.contains('edited additions'), 'Edited note has updated additions');
+
+  persistRepo2.dispose();
+  acceptanceTempDir.deleteSync(recursive: true);
+
+  stdout.writeln('ALL NOTEFLOW TESTS PASSED! (100/100 Assertions) ✓');
 }
