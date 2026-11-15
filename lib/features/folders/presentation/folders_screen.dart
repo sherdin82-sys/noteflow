@@ -56,7 +56,7 @@ class _FoldersScreenState extends ConsumerState<FoldersScreen> {
                       );
                 await ref.read(noteRepositoryProvider).saveFolder(folder);
               }
-              if (mounted) Navigator.pop(dialogContext);
+              if (dialogContext.mounted) Navigator.pop(dialogContext);
             },
             child: Text(existing != null ? 'Save' : 'Create'),
           ),
@@ -144,8 +144,10 @@ class _FoldersScreenState extends ConsumerState<FoldersScreen> {
                     ref.read(noteFilterProvider.notifier).setSelectedFolder(null);
                   }
 
-                  if (mounted) {
+                  if (dialogContext.mounted) {
                     Navigator.pop(dialogContext);
+                  }
+                  if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
                         content: Text(

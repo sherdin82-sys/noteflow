@@ -313,7 +313,7 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
             icon: const Icon(Icons.arrow_back_rounded),
             onPressed: () async {
               await _saveNoteImmediate();
-              if (mounted) Navigator.pop(context);
+              if (context.mounted) Navigator.pop(context);
             },
           ),
           title: Row(
@@ -377,11 +377,11 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                     break;
                   case 'archive':
                     await ref.read(noteRepositoryProvider).toggleArchive(_currentNote.id);
-                    if (mounted) Navigator.pop(context);
+                    if (context.mounted) Navigator.pop(context);
                     break;
                   case 'delete':
                     await ref.read(noteRepositoryProvider).deleteNote(_currentNote.id);
-                    if (mounted) Navigator.pop(context);
+                    if (context.mounted) Navigator.pop(context);
                     break;
                 }
               },
@@ -399,30 +399,30 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                     ],
                   ),
                 ),
-                PopupMenuItem(
+                const PopupMenuItem(
                   value: 'folder',
                   child: Row(
-                    children: const [
+                    children: [
                       Icon(Icons.folder_outlined, size: 18),
                       SizedBox(width: 10),
                       Text('Assign Folder'),
                     ],
                   ),
                 ),
-                PopupMenuItem(
+                const PopupMenuItem(
                   value: 'stats',
                   child: Row(
-                    children: const [
+                    children: [
                       Icon(Icons.analytics_outlined, size: 18),
                       SizedBox(width: 10),
                       Text('Note Info & Stats'),
                     ],
                   ),
                 ),
-                PopupMenuItem(
+                const PopupMenuItem(
                   value: 'copy',
                   child: Row(
-                    children: const [
+                    children: [
                       Icon(Icons.copy_rounded, size: 18),
                       SizedBox(width: 10),
                       Text('Copy Note Text'),
@@ -430,20 +430,20 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                   ),
                 ),
                 const PopupMenuDivider(),
-                PopupMenuItem(
+                const PopupMenuItem(
                   value: 'archive',
                   child: Row(
-                    children: const [
+                    children: [
                       Icon(Icons.archive_outlined, size: 18),
                       SizedBox(width: 10),
                       Text('Archive Note'),
                     ],
                   ),
                 ),
-                PopupMenuItem(
+                const PopupMenuItem(
                   value: 'delete',
                   child: Row(
-                    children: const [
+                    children: [
                       Icon(Icons.delete_outline, size: 18, color: AppColors.danger),
                       SizedBox(width: 10),
                       Text('Delete Note', style: TextStyle(color: AppColors.danger)),
@@ -516,7 +516,7 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                         controller: _quillController,
                         focusNode: _editorFocusNode,
                         scrollController: _editorScrollController,
-                        config: QuillEditorConfig(
+                        config: const QuillEditorConfig(
                           placeholder: 'Start writing thoughts, tasks, or format with toolbar...',
                           padding: EdgeInsets.zero,
                           autoFocus: false,

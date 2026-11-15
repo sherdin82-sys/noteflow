@@ -58,7 +58,7 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
             style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
             onPressed: () async {
               await ref.read(noteRepositoryProvider).deleteNote(note.id);
-              if (mounted) Navigator.pop(dialogContext);
+              if (dialogContext.mounted) Navigator.pop(dialogContext);
             },
             child: const Text('Delete'),
           ),
@@ -156,7 +156,7 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
                         onTogglePin: () {},
                         onToggleArchive: () async {
                           await repo.toggleArchive(note.id);
-                          if (mounted) {
+                          if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(content: Text('Note unarchived and restored to Home')),
                             );

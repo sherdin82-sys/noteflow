@@ -90,12 +90,12 @@ class LocalNoteRepository implements NoteRepository {
   Future<File?> _getStorageFile() async {
     if (_resolvedFile != null) return _resolvedFile;
     if (_customStoragePath != null) {
-      _resolvedFile = File(_customStoragePath!);
+      _resolvedFile = File(_customStoragePath);
       return _resolvedFile;
     }
     if (_directoryProvider != null) {
       try {
-        final dirPath = await _directoryProvider!();
+        final dirPath = await _directoryProvider();
         _resolvedFile = File('$dirPath/noteflow_data.json');
         return _resolvedFile;
       } catch (_) {
