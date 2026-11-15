@@ -84,7 +84,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   );
                   await ref.read(noteRepositoryProvider).saveFolder(newFolder);
                 }
-                if (mounted) Navigator.pop(dialogContext);
+                if (dialogContext.mounted) Navigator.pop(dialogContext);
               },
               child: const Text('Create'),
             ),
@@ -351,7 +351,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
             onPressed: () async {
               await ref.read(noteRepositoryProvider).deleteNote(note.id);
-              if (mounted) Navigator.pop(dialogContext);
+              if (dialogContext.mounted) Navigator.pop(dialogContext);
             },
             child: const Text('Delete'),
           ),

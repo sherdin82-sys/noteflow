@@ -71,8 +71,8 @@ class NoteCard extends StatelessWidget {
                     ),
                   ),
                   if (note.isPinned)
-                    Padding(
-                      padding: const EdgeInsets.only(left: 6),
+                    const Padding(
+                      padding: EdgeInsets.only(left: 6),
                       child: Icon(
                         Icons.push_pin,
                         size: 16,
@@ -151,7 +151,7 @@ class NoteCard extends StatelessWidget {
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(
+                          const Icon(
                             Icons.check_box_outlined,
                             size: 12,
                             color: AppColors.accent,
@@ -303,10 +303,10 @@ class NoteCard extends StatelessWidget {
             ),
           ),
           const PopupMenuDivider(),
-          PopupMenuItem(
+          const PopupMenuItem(
             value: 'delete',
             child: Row(
-              children: const [
+              children: [
                 Icon(Icons.delete_outline, size: 18, color: AppColors.danger),
                 SizedBox(width: 10),
                 Text('Delete', style: TextStyle(color: AppColors.danger)),

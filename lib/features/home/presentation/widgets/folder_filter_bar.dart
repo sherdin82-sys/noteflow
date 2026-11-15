@@ -100,7 +100,7 @@ class FolderFilterBar extends StatelessWidget {
     final selectedBg = isDark ? AppColors.primary : AppColors.primary;
     final unselectedBg = isDark ? AppColors.darkSurfaceVariant : AppColors.lightSurfaceVariant;
 
-    final selectedText = Colors.white;
+    const selectedText = Colors.white;
     final unselectedText = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
 
     return Material(
