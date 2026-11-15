@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 import '../../lib/shared/models/note_entity.dart';
 import '../../lib/shared/models/folder_entity.dart';
 import '../../lib/shared/models/note_filter.dart';
@@ -96,6 +97,42 @@ Future<void> main() async {
   expect(!fixedBugText.contains('[{"'), 'Fixed bug text does not have raw JSON array bracket syntax');
   expect(!fixedBugText.contains('{"insert"'), 'Fixed bug text does not have {"insert"');
   expect(fixedBugText.contains('[ ] Review deadline'), 'Checklist line properly converted');
+
+  // markdownToDeltaJson tests (Rich Text Migration & Storage)
+  final boldDelta = NoteHelper.markdownToDeltaJson('**Hello**');
+  final boldOps = jsonDecode(boldDelta) as List<dynamic>;
+  expect(boldOps.any((op) => op is Map && op['insert'] == 'Hello' && op['attributes']?['bold'] == true), 'Bold text converted to Delta with bold attribute');
+
+  final italicDelta = NoteHelper.markdownToDeltaJson('*Italic*');
+  final italicOps = jsonDecode(italicDelta) as List<dynamic>;
+  expect(italicOps.any((op) => op is Map && op['insert'] == 'Italic' && op['attributes']?['italic'] == true), 'Italic text converted to Delta with italic attribute');
+
+  final underlineDelta = NoteHelper.markdownToDeltaJson('<u>Underlined</u>');
+  final underlineOps = jsonDecode(underlineDelta) as List<dynamic>;
+  expect(underlineOps.any((op) => op is Map && op['insert'] == 'Underlined' && op['attributes']?['underline'] == true), 'Underline text converted to Delta with underline attribute');
+
+  final combinedDelta = NoteHelper.markdownToDeltaJson('***Bold and Italic***');
+  final combinedOps = jsonDecode(combinedDelta) as List<dynamic>;
+  expect(combinedOps.any((op) => op is Map && op['attributes']?['bold'] == true && op['attributes']?['italic'] == true), 'Combined bold & italic formatting converted to Delta');
+
+  final headingDelta = NoteHelper.markdownToDeltaJson('# Heading 1\n## Heading 2\n### Heading 3');
+  final headingOps = jsonDecode(headingDelta) as List<dynamic>;
+  expect(headingOps.any((op) => op is Map && op['attributes']?['header'] == 1), 'H1 block attribute generated in Delta');
+  expect(headingOps.any((op) => op is Map && op['attributes']?['header'] == 2), 'H2 block attribute generated in Delta');
+  expect(headingOps.any((op) => op is Map && op['attributes']?['header'] == 3), 'H3 block attribute generated in Delta');
+
+  final bulletDelta = NoteHelper.markdownToDeltaJson('- First Item\n- Second Item');
+  final bulletOps = jsonDecode(bulletDelta) as List<dynamic>;
+  expect(bulletOps.any((op) => op is Map && op['attributes']?['list'] == 'bullet'), 'Bullet list block attribute generated in Delta');
+
+  final numberedDelta = NoteHelper.markdownToDeltaJson('1. Step One\n2. Step Two');
+  final numberedOps = jsonDecode(numberedDelta) as List<dynamic>;
+  expect(numberedOps.any((op) => op is Map && op['attributes']?['list'] == 'ordered'), 'Numbered list block attribute generated in Delta');
+
+  final checklistDelta = NoteHelper.markdownToDeltaJson('[ ] Buy milk\n[x] Finished task');
+  final checklistOps = jsonDecode(checklistDelta) as List<dynamic>;
+  expect(checklistOps.any((op) => op is Map && op['attributes']?['list'] == 'unchecked'), 'Unchecked list attribute generated in Delta');
+  expect(checklistOps.any((op) => op is Map && op['attributes']?['list'] == 'checked'), 'Checked list attribute generated in Delta');
 
   // --- Suite 3: DateFormatter ---
   final smartNow = DateFormatter.formatSmart(DateTime.now());
@@ -251,8 +288,74 @@ Future<void> main() async {
   expect(persistentRepo3.themeMode == 'light', 'Theme mode persisted and restored from disk');
   persistentRepo3.dispose();
 
+  // --- Suite 8: Rich Text Quill Delta Persistence & Editing Roundtrip ---
+  final richTextRepo1 = LocalNoteRepository(
+    seedDemoData: false,
+    enableDiskPersistence: true,
+    customStoragePath: testJsonPath,
+  );
+  await richTextRepo1.init();
+
+  const richDeltaContent = '[{"insert":"Architecture Plan\\n","attributes":{"header":1}},{"insert":"Feature is "},{"insert":"critical","attributes":{"bold":true}},{"insert":" and "},{"insert":"urgent","attributes":{"italic":true}},{"insert":".\\n"},{"insert":"Draft spec"},{"insert":"\\n","attributes":{"list":"unchecked"}}]';
+
+  final richNote = NoteEntity(
+    id: 'rich-note-delta-1',
+    title: 'Rich Text Delta Note',
+    content: richDeltaContent,
+    createdAt: DateTime.now(),
+    updatedAt: DateTime.now(),
+  );
+
+  await richTextRepo1.saveNote(richNote);
+  richTextRepo1.dispose();
+
+  // Reopen note in brand new repository session
+  final richTextRepo2 = LocalNoteRepository(
+    seedDemoData: false,
+    enableDiskPersistence: true,
+    customStoragePath: testJsonPath,
+  );
+  await richTextRepo2.init();
+
+  final reloadedRichNote = await richTextRepo2.getNoteById('rich-note-delta-1');
+  expect(reloadedRichNote != null, 'Rich text note reloaded from disk');
+  expect(NoteHelper.isDeltaContent(reloadedRichNote!.content), 'Content preserved as native Quill Delta JSON');
+
+  final reloadedOps = jsonDecode(reloadedRichNote.content) as List<dynamic>;
+  expect(reloadedOps.any((op) => op is Map && op['insert'] == 'critical' && op['attributes']?['bold'] == true), 'Bold attribute preserved across restart without plain text conversion');
+  expect(reloadedOps.any((op) => op is Map && op['attributes']?['header'] == 1), 'Heading attribute preserved across restart');
+  expect(reloadedOps.any((op) => op is Map && op['attributes']?['list'] == 'unchecked'), 'Checklist attribute preserved across restart');
+
+  // Edit previously saved note by appending new formatted operations
+  final editedOps = List<Map<String, dynamic>>.from(reloadedOps);
+  editedOps.add({'insert': 'Approved by lead\n', 'attributes': {'list': 'checked'}});
+  final editedDeltaJson = jsonEncode(editedOps);
+
+  final editedNote = reloadedRichNote.copyWith(
+    content: editedDeltaJson,
+    updatedAt: DateTime.now(),
+  );
+  await richTextRepo2.saveNote(editedNote);
+  richTextRepo2.dispose();
+
+  // Reopen third session to verify edited note
+  final richTextRepo3 = LocalNoteRepository(
+    seedDemoData: false,
+    enableDiskPersistence: true,
+    customStoragePath: testJsonPath,
+  );
+  await richTextRepo3.init();
+
+  final reloadedEdited = await richTextRepo3.getNoteById('rich-note-delta-1');
+  expect(reloadedEdited != null, 'Edited rich text note reloaded');
+  final reloadedEditedOps = jsonDecode(reloadedEdited!.content) as List<dynamic>;
+  expect(reloadedEditedOps.any((op) => op is Map && op['insert'] == 'Approved by lead\n' && op['attributes']?['list'] == 'checked'), 'Edited operations persisted to disk');
+
+  await richTextRepo3.deleteNote('rich-note-delta-1');
+  richTextRepo3.dispose();
+
   // Clean up temp file
   tempDir.deleteSync(recursive: true);
 
-  stdout.writeln('ALL NOTEFLOW TESTS PASSED! (39/39 Assertions) ✓');
+  stdout.writeln('ALL NOTEFLOW TESTS PASSED! (57/57 Assertions) ✓');
 }

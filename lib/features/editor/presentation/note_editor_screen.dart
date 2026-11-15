@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_quill/flutter_quill.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 import '../../../../core/constants/app_constants.dart';
@@ -35,7 +37,9 @@ class NoteEditorScreen extends ConsumerStatefulWidget {
 
 class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
   late final TextEditingController _titleController;
-  late final TextEditingController _contentController;
+  late QuillController _quillController;
+  final FocusNode _editorFocusNode = FocusNode();
+  final ScrollController _editorScrollController = ScrollController();
   Timer? _autoSaveTimer;
 
   late NoteEntity _currentNote;
@@ -50,18 +54,12 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
     final now = DateTime.now();
 
     if (widget.initialNote != null) {
-      var note = widget.initialNote!;
-      if (NoteHelper.isDeltaContent(note.content)) {
-        final isChecklist = note.isChecklist || NoteHelper.isChecklistContent(note.content);
-        note = note.copyWith(
-          content: NoteHelper.formatForEditor(note.content),
-          isChecklist: isChecklist,
-        );
-      }
-      _currentNote = note;
+      _currentNote = widget.initialNote!;
+      _initQuillController(_currentNote.content);
       _isLoading = false;
     } else if (widget.noteId == null) {
       _currentNote = _createDefaultNote(now);
+      _initQuillController(_currentNote.content);
       _isLoading = false;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
@@ -74,31 +72,50 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
     }
 
     _titleController = TextEditingController(text: _isLoading ? '' : _currentNote.title);
-    _contentController = TextEditingController(
-      text: _isLoading ? '' : NoteHelper.formatForEditor(_currentNote.content),
-    );
+  }
+
+  void _initQuillController(String rawContent) {
+    List<dynamic> deltaOps;
+    if (NoteHelper.isDeltaContent(rawContent)) {
+      try {
+        deltaOps = jsonDecode(rawContent) as List<dynamic>;
+      } catch (_) {
+        deltaOps = jsonDecode(NoteHelper.markdownToDeltaJson(rawContent)) as List<dynamic>;
+      }
+    } else {
+      // Legacy markdown or plain text note: explicitly convert to native Quill Delta
+      deltaOps = jsonDecode(NoteHelper.markdownToDeltaJson(rawContent)) as List<dynamic>;
+    }
+
+    try {
+      final doc = Document.fromJson(deltaOps);
+      _quillController = QuillController(
+        document: doc,
+        selection: const TextSelection.collapsed(offset: 0),
+      );
+    } catch (_) {
+      _quillController = QuillController.basic();
+    }
+
+    _quillController.addListener(_onQuillChanged);
+  }
+
+  void _onQuillChanged() {
+    _triggerAutoSave();
   }
 
   Future<void> _initExistingNote() async {
     final repo = ref.read(noteRepositoryProvider);
     final existing = await repo.getNoteById(widget.noteId!);
     if (existing != null) {
-      var note = existing;
-      if (NoteHelper.isDeltaContent(note.content)) {
-        final isChecklist = note.isChecklist || NoteHelper.isChecklistContent(note.content);
-        note = note.copyWith(
-          content: NoteHelper.formatForEditor(note.content),
-          isChecklist: isChecklist,
-        );
-        // Persist cleaned note immediately so raw Delta JSON is sanitized in database
-        await repo.saveNote(note);
-      }
-      _currentNote = note;
+      _currentNote = existing;
     } else {
       _currentNote = _createDefaultNote(DateTime.now());
     }
+
+    _initQuillController(_currentNote.content);
     _titleController.text = _currentNote.title;
-    _contentController.text = NoteHelper.formatForEditor(_currentNote.content);
+
     if (mounted) {
       setState(() {
         _isLoading = false;
@@ -107,10 +124,16 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
   }
 
   NoteEntity _createDefaultNote(DateTime now) {
+    final defaultContent = widget.isChecklist
+        ? NoteHelper.markdownToDeltaJson('[ ] ')
+        : jsonEncode([
+            {'insert': '\n'}
+          ]);
+
     return NoteEntity(
       id: widget.noteId ?? _uuid.v4(),
       title: '',
-      content: widget.isChecklist ? '[ ] ' : '',
+      content: defaultContent,
       folderId: widget.initialFolderId,
       isPinned: false,
       isArchived: false,
@@ -124,14 +147,19 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
   @override
   void dispose() {
     _autoSaveTimer?.cancel();
-    // Flush any pending save synchronously before disposing
-    _saveNoteImmediate();
+    if (!_isLoading) {
+      _saveNoteImmediate();
+      _quillController.removeListener(_onQuillChanged);
+      _quillController.dispose();
+    }
     _titleController.dispose();
-    _contentController.dispose();
+    _editorFocusNode.dispose();
+    _editorScrollController.dispose();
     super.dispose();
   }
 
   void _triggerAutoSave() {
+    if (!mounted) return;
     setState(() {
       _isSaving = true;
       _saveStatus = 'Saving...';
@@ -145,9 +173,13 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
 
   Future<void> _saveNoteImmediate() async {
     _autoSaveTimer?.cancel();
+
+    // Serialize using the Quill document Delta JSON representation
+    final deltaJson = jsonEncode(_quillController.document.toDelta().toJson());
+
     final updated = _currentNote.copyWith(
       title: _titleController.text,
-      content: _contentController.text,
+      content: deltaJson,
       updatedAt: DateTime.now(),
     );
 
@@ -221,10 +253,9 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
   }
 
   void _showStats() {
-    // Sync note content before displaying stats
     _currentNote = _currentNote.copyWith(
       title: _titleController.text,
-      content: _contentController.text,
+      content: jsonEncode(_quillController.document.toDelta().toJson()),
     );
 
     showModalBottomSheet(
@@ -237,7 +268,8 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
   }
 
   void _copyToClipboard() {
-    final full = '${_titleController.text}\n\n${_contentController.text}'.trim();
+    final plainText = _quillController.document.toPlainText().trim();
+    final full = '${_titleController.text}\n\n$plainText'.trim();
     Clipboard.setData(ClipboardData(text: full));
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Note copied to clipboard')),
@@ -286,7 +318,6 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
           ),
           title: Row(
             children: [
-              // Auto-save status indicator (100% offline local persistence)
               Icon(
                 _isSaving ? Icons.sync_rounded : Icons.offline_pin_outlined,
                 size: 15,
@@ -304,7 +335,6 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
             ],
           ),
           actions: [
-            // Pin toggle
             IconButton(
               icon: Icon(
                 _currentNote.isPinned ? Icons.push_pin : Icons.push_pin_outlined,
@@ -319,7 +349,6 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
               },
             ),
 
-            // More Options Menu
             PopupMenuButton<String>(
               icon: Icon(Icons.more_vert, color: secondaryTextColor),
               shape: RoundedRectangleBorder(
@@ -329,7 +358,11 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                 switch (val) {
                   case 'checklist':
                     setState(() {
-                      _currentNote = _currentNote.copyWith(isChecklist: !_currentNote.isChecklist);
+                      final newIsChecklist = !_currentNote.isChecklist;
+                      _currentNote = _currentNote.copyWith(isChecklist: newIsChecklist);
+                      if (!newIsChecklist) {
+                        _initQuillController(_currentNote.content);
+                      }
                     });
                     _triggerAutoSave();
                     break;
@@ -362,7 +395,7 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                         size: 18,
                       ),
                       const SizedBox(width: 10),
-                      Text(_currentNote.isChecklist ? 'Convert to Plain Text' : 'Convert to Checklist'),
+                      Text(_currentNote.isChecklist ? 'Convert to Rich Text' : 'Convert to Checklist'),
                     ],
                   ),
                 ),
@@ -428,7 +461,6 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
               child: ListView(
                 padding: const EdgeInsets.symmetric(horizontal: AppConstants.paddingMedium),
                 children: [
-                  // Folder Chip Badge (if assigned)
                   if (currentFolder != null) ...[
                     Align(
                       alignment: Alignment.centerLeft,
@@ -461,33 +493,38 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
 
                   const SizedBox(height: 12),
 
-                  // Body Content: Checklist or Rich-text markdown
+                  // Body Content: Checklist or Native Flutter Quill Editor
                   if (_currentNote.isChecklist)
                     ChecklistView(
-                      rawContent: _contentController.text,
+                      rawContent: NoteHelper.formatForEditor(_currentNote.content),
                       onContentChanged: (newText) {
-                        _contentController.text = newText;
+                        final deltaJson = NoteHelper.markdownToDeltaJson(newText);
+                        _currentNote = _currentNote.copyWith(content: deltaJson);
+                        try {
+                          final ops = jsonDecode(deltaJson) as List<dynamic>;
+                          _quillController.removeListener(_onQuillChanged);
+                          _quillController.document = Document.fromJson(ops);
+                          _quillController.addListener(_onQuillChanged);
+                        } catch (_) {}
                         _triggerAutoSave();
                       },
                     )
                   else
-                    TextField(
-                      controller: _contentController,
-                      maxLines: null,
-                      keyboardType: TextInputType.multiline,
-                      style: AppTypography.bodyLarge(primaryTextColor),
-                      decoration: InputDecoration(
-                        hintText: 'Start writing thoughts, tasks, or paste markdown...',
-                        hintStyle: AppTypography.bodyLarge(
-                          isDark ? AppColors.darkTextTertiary : AppColors.lightTextTertiary,
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: QuillEditor.basic(
+                        controller: _quillController,
+                        focusNode: _editorFocusNode,
+                        scrollController: _editorScrollController,
+                        config: QuillEditorConfig(
+                          placeholder: 'Start writing thoughts, tasks, or format with toolbar...',
+                          padding: EdgeInsets.zero,
+                          autoFocus: false,
+                          scrollable: false,
+                          expands: false,
+                          showCursor: true,
                         ),
-                        border: InputBorder.none,
-                        enabledBorder: InputBorder.none,
-                        focusedBorder: InputBorder.none,
-                        filled: false,
-                        contentPadding: EdgeInsets.zero,
                       ),
-                      onChanged: (_) => _triggerAutoSave(),
                     ),
 
                   const SizedBox(height: 40),
@@ -516,7 +553,7 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                         ),
                       if (!_currentNote.isChecklist)
                         EditorToolbar(
-                          controller: _contentController,
+                          controller: _quillController,
                           onChanged: _triggerAutoSave,
                         ),
                     ],

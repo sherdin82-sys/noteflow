@@ -46,9 +46,180 @@ class NoteHelper {
     return false;
   }
 
-  /// Converts either a Quill Delta JSON string or formatted text into
-  /// clean, human-readable formatted Markdown text for the editor.
-  /// If [content] is already plain text or markdown, it is returned untouched.
+  /// Explicitly converts legacy Markdown or plain text into a valid native Quill Delta JSON string.
+  /// If [markdown] is already a valid Delta JSON string, it is returned as-is.
+  static String markdownToDeltaJson(String markdown) {
+    if (markdown.isEmpty) {
+      return jsonEncode([
+        {'insert': '\n'}
+      ]);
+    }
+
+    final trimmed = markdown.trim();
+    if (isDeltaContent(trimmed)) {
+      return trimmed;
+    }
+
+    final lines = markdown.split('\n');
+    final List<Map<String, dynamic>> ops = [];
+
+    for (int i = 0; i < lines.length; i++) {
+      var line = lines[i];
+      final Map<String, dynamic> blockAttrs = {};
+
+      // Detect block prefixes
+      if (line.startsWith('### ')) {
+        blockAttrs['header'] = 3;
+        line = line.substring(4);
+      } else if (line.startsWith('## ')) {
+        blockAttrs['header'] = 2;
+        line = line.substring(3);
+      } else if (line.startsWith('# ')) {
+        blockAttrs['header'] = 1;
+        line = line.substring(2);
+      } else if (line.startsWith('[ ] ') || line.startsWith('- [ ] ')) {
+        blockAttrs['list'] = 'unchecked';
+        line = line.startsWith('- [ ] ') ? line.substring(6) : line.substring(4);
+      } else if (line.startsWith('[x] ') || line.startsWith('- [x] ')) {
+        blockAttrs['list'] = 'checked';
+        line = line.startsWith('- [x] ') ? line.substring(6) : line.substring(4);
+      } else if (line.startsWith('- ') || line.startsWith('* ') || line.startsWith('• ')) {
+        blockAttrs['list'] = 'bullet';
+        line = line.substring(2);
+      } else if (RegExp(r'^\d+\.\s').hasMatch(line)) {
+        blockAttrs['list'] = 'ordered';
+        line = line.replaceFirst(RegExp(r'^\d+\.\s'), '');
+      } else if (line.startsWith('> ')) {
+        blockAttrs['blockquote'] = true;
+        line = line.substring(2);
+      } else if (line.startsWith('```')) {
+        blockAttrs['code-block'] = true;
+        line = line.substring(3);
+      }
+
+      // Parse inline styles in line: **bold**, *italic*, ~~strike~~, `code`, <u>underline</u>, [text](url)
+      if (line.isNotEmpty) {
+        _parseInlineMarkdownToOps(line, ops);
+      }
+
+      // Append newline with block attributes
+      if (blockAttrs.isNotEmpty) {
+        ops.add({'insert': '\n', 'attributes': blockAttrs});
+      } else {
+        ops.add({'insert': '\n'});
+      }
+    }
+
+    return jsonEncode(_simplifyOps(ops));
+  }
+
+  static void _parseInlineMarkdownToOps(String line, List<Map<String, dynamic>> ops) {
+    final inlineRegex = RegExp(
+      r'(\*\*\*(.+?)\*\*\*)|(___(.+?)___)|(\*\*(.+?)\*\*)|(__([^_]+)__)|(\*([^*]+)\*)|(_([^_]+)_)|(~~(.+?)~~)|(`(.+?)`)|(<u>(.+?)</u>)|\[([^\]]+)\]\(([^)]+)\)',
+    );
+
+    int lastEnd = 0;
+    for (final match in inlineRegex.allMatches(line)) {
+      if (match.start > lastEnd) {
+        ops.add({'insert': line.substring(lastEnd, match.start)});
+      }
+
+      String text = '';
+      final Map<String, dynamic> attrs = {};
+
+      if (match.group(1) != null) {
+        text = match.group(2)!;
+        attrs['bold'] = true;
+        attrs['italic'] = true;
+      } else if (match.group(3) != null) {
+        text = match.group(4)!;
+        attrs['bold'] = true;
+        attrs['italic'] = true;
+      } else if (match.group(5) != null) {
+        text = match.group(6)!;
+        attrs['bold'] = true;
+      } else if (match.group(7) != null) {
+        text = match.group(8)!;
+        attrs['bold'] = true;
+      } else if (match.group(9) != null) {
+        text = match.group(10)!;
+        attrs['italic'] = true;
+      } else if (match.group(11) != null) {
+        text = match.group(12)!;
+        attrs['italic'] = true;
+      } else if (match.group(13) != null) {
+        text = match.group(14)!;
+        attrs['strike'] = true;
+      } else if (match.group(15) != null) {
+        text = match.group(16)!;
+        attrs['code'] = true;
+      } else if (match.group(17) != null) {
+        text = match.group(18)!;
+        attrs['underline'] = true;
+      } else if (match.group(19) != null) {
+        text = match.group(19)!;
+        attrs['link'] = match.group(20)!;
+      }
+
+      if (attrs.isNotEmpty) {
+        ops.add({'insert': text, 'attributes': attrs});
+      } else {
+        ops.add({'insert': text});
+      }
+
+      lastEnd = match.end;
+    }
+
+    if (lastEnd < line.length) {
+      ops.add({'insert': line.substring(lastEnd)});
+    }
+  }
+
+  static List<Map<String, dynamic>> _simplifyOps(List<Map<String, dynamic>> ops) {
+    if (ops.isEmpty) {
+      return [
+        {'insert': '\n'}
+      ];
+    }
+
+    final List<Map<String, dynamic>> merged = [];
+    for (final op in ops) {
+      if (merged.isEmpty) {
+        merged.add(Map<String, dynamic>.from(op));
+        continue;
+      }
+
+      final prev = merged.last;
+      final prevInsert = prev['insert'];
+      final currInsert = op['insert'];
+
+      final prevAttrs = prev['attributes'] as Map<String, dynamic>?;
+      final currAttrs = op['attributes'] as Map<String, dynamic>?;
+
+      final sameAttrs = _mapsEqual(prevAttrs, currAttrs);
+
+      if (prevInsert is String && currInsert is String && sameAttrs && !prevInsert.endsWith('\n')) {
+        prev['insert'] = prevInsert + currInsert;
+      } else {
+        merged.add(Map<String, dynamic>.from(op));
+      }
+    }
+
+    return merged;
+  }
+
+  static bool _mapsEqual(Map<String, dynamic>? a, Map<String, dynamic>? b) {
+    if (a == null && b == null) return true;
+    if (a == null || b == null) return false;
+    if (a.length != b.length) return false;
+    for (final key in a.keys) {
+      if (!b.containsKey(key) || a[key] != b[key]) return false;
+    }
+    return true;
+  }
+
+  /// Converts a Quill Delta JSON string into clean formatted Markdown/plain text.
+  /// Used for previews or exporting.
   static String formatForEditor(String content) {
     if (content.isEmpty) return '';
     final trimmed = content.trim();
@@ -106,13 +277,11 @@ class NoteHelper {
         lines.add(currentLine);
       }
 
-      // If document is completely empty or just had a single blank line
       if (lines.isEmpty) return '';
       if (lines.length == 1 && lines.first.isEmpty) return '';
 
       return lines.map((l) => l.toFormattedString()).join('\n');
     } catch (_) {
-      // In case of any unexpected JSON parsing error, fall back safely
       return extractPlainText(content);
     }
   }
@@ -161,7 +330,6 @@ class _DeltaSpan {
     if (text.isEmpty) return '';
     if (attributes.isEmpty) return text;
 
-    // Isolate leading and trailing whitespace to preserve valid markdown delimiter syntax
     final leadingMatch = RegExp(r'^\s*').firstMatch(text);
     final leading = leadingMatch?.group(0) ?? '';
     final trailingMatch = RegExp(r'\s*$').firstMatch(text);
@@ -179,6 +347,7 @@ class _DeltaSpan {
       final isBold = attributes['bold'] == true;
       final isItalic = attributes['italic'] == true;
       final isStrike = attributes['strike'] == true;
+      final isUnderline = attributes['underline'] == true;
 
       if (isBold && isItalic) {
         core = '***$core***';
@@ -190,6 +359,9 @@ class _DeltaSpan {
 
       if (isStrike) {
         core = '~~$core~~';
+      }
+      if (isUnderline) {
+        core = '<u>$core</u>';
       }
     }
 
