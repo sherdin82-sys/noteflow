@@ -491,5 +491,46 @@ Future<void> main() async {
   persistRepo2.dispose();
   acceptanceTempDir.deleteSync(recursive: true);
 
-  stdout.writeln('ALL NOTEFLOW TESTS PASSED! (100/100 Assertions) ✓');
+  // --- Suite 7: Editor CRUD & Lifecycle Scenarios ---
+  // Test 1: Empty Note Discard Verification
+  final emptyDelta = jsonEncode([{'insert': '\n'}]);
+  final emptyChecklistDelta = NoteHelper.markdownToDeltaJson('[ ] ');
+  expect(NoteHelper.extractPlainText(emptyDelta).trim().isEmpty, 'Empty rich text note produces blank plain text');
+  expect(NoteHelper.extractPlainText(emptyChecklistDelta).trim().isEmpty, 'Empty checklist note produces blank plain text');
+
+  // Test 2: Mode switching between Rich Text and Checklist content preservation
+  const richSource = '[{"insert":"Meeting Agenda\\n"},{"insert":"Discuss budget\\n","attributes":{"list":"bullet"}}]';
+  final convertedToChecklist = NoteHelper.formatForEditor(richSource);
+  expect(convertedToChecklist.contains('Meeting Agenda'), 'Rich text converted to checklist retains text');
+  expect(convertedToChecklist.contains('• Discuss budget'), 'Rich text converted to checklist retains list item');
+
+  const checklistSource = '[ ] First task\n[x] Completed task';
+  final convertedToDelta = NoteHelper.markdownToDeltaJson(checklistSource);
+  final convertedBackOps = jsonDecode(convertedToDelta) as List<dynamic>;
+  expect(convertedBackOps.any((op) => op is Map && op['insert'] == 'First task'), 'Checklist converted to Delta retains task 1');
+  expect(convertedBackOps.any((op) => op is Map && op['insert'] == 'Completed task'), 'Checklist converted to Delta retains task 2');
+
+  // Test 3: Note Deletion Lifecycle (cannot be retrieved after delete)
+  final crudTempDir = Directory.systemTemp.createTempSync('noteflow_crud_');
+  final crudDbPath = '${crudTempDir.path}/noteflow_data.json';
+  final crudRepo = LocalNoteRepository(enableDiskPersistence: true, customStoragePath: crudDbPath);
+  await crudRepo.init();
+
+  final crudNote = NoteEntity(
+    id: 'crud-note-lifecycle-1',
+    title: 'CRUD Lifecycle Note',
+    content: '[{"insert":"Active note content\\n"}]',
+    createdAt: DateTime.now(),
+    updatedAt: DateTime.now(),
+  );
+  await crudRepo.saveNote(crudNote);
+  expect(await crudRepo.getNoteById('crud-note-lifecycle-1') != null, 'CRUD note saved');
+
+  await crudRepo.deleteNote('crud-note-lifecycle-1');
+  expect(await crudRepo.getNoteById('crud-note-lifecycle-1') == null, 'CRUD note deleted cleanly from repository');
+
+  crudRepo.dispose();
+  crudTempDir.deleteSync(recursive: true);
+
+  stdout.writeln('ALL NOTEFLOW TESTS PASSED! (108/108 Assertions) ✓');
 }

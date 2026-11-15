@@ -45,6 +45,8 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
   late NoteEntity _currentNote;
   bool _isLoading = false;
   bool _isSaving = false;
+  bool _isDeleted = false;
+  bool _isNotePersisted = false;
   String _saveStatus = 'Saved locally';
   final _uuid = const Uuid();
 
@@ -57,17 +59,15 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
       _currentNote = widget.initialNote!;
       _initQuillController(_currentNote.content);
       _isLoading = false;
+      _isNotePersisted = true;
     } else if (widget.noteId == null) {
       _currentNote = _createDefaultNote(now);
       _initQuillController(_currentNote.content);
       _isLoading = false;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          ref.read(noteRepositoryProvider).saveNote(_currentNote);
-        }
-      });
+      _isNotePersisted = false;
     } else {
       _isLoading = true;
+      _isNotePersisted = true;
       _initExistingNote();
     }
 
@@ -147,11 +147,11 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
   @override
   void dispose() {
     _autoSaveTimer?.cancel();
-    if (!_isLoading) {
+    if (!_isLoading && !_isDeleted) {
       _saveNoteImmediate();
-      _quillController.removeListener(_onQuillChanged);
-      _quillController.dispose();
     }
+    _quillController.removeListener(_onQuillChanged);
+    _quillController.dispose();
     _titleController.dispose();
     _editorFocusNode.dispose();
     _editorScrollController.dispose();
@@ -159,7 +159,7 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
   }
 
   void _triggerAutoSave() {
-    if (!mounted) return;
+    if (!mounted || _isDeleted) return;
     setState(() {
       _isSaving = true;
       _saveStatus = 'Saving...';
@@ -173,17 +173,31 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
 
   Future<void> _saveNoteImmediate() async {
     _autoSaveTimer?.cancel();
+    if (_isDeleted) return;
 
-    // Serialize using the Quill document Delta JSON representation
-    final deltaJson = jsonEncode(_quillController.document.toDelta().toJson());
+    final title = _titleController.text.trim();
+    final String contentToSave;
+    if (_currentNote.isChecklist) {
+      contentToSave = _currentNote.content;
+    } else {
+      contentToSave = jsonEncode(_quillController.document.toDelta().toJson());
+    }
+
+    final plainText = NoteHelper.extractPlainText(contentToSave).trim();
+
+    // If this is a new note and both title and content are blank, discard it
+    if (!_isNotePersisted && title.isEmpty && plainText.isEmpty) {
+      return;
+    }
 
     final updated = _currentNote.copyWith(
       title: _titleController.text,
-      content: deltaJson,
+      content: contentToSave,
       updatedAt: DateTime.now(),
     );
 
     _currentNote = updated;
+    _isNotePersisted = true;
     await ref.read(noteRepositoryProvider).saveNote(updated);
 
     if (mounted) {
@@ -298,10 +312,12 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
     final currentFolder = folders.where((f) => f.id == _currentNote.folderId).firstOrNull;
 
     return PopScope(
-      canPop: true,
-      onPopInvokedWithResult: (didPop, result) {
-        if (didPop) {
-          _saveNoteImmediate();
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        await _saveNoteImmediate();
+        if (mounted) {
+          Navigator.of(context).pop();
         }
       },
       child: Scaffold(
@@ -313,7 +329,7 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
             icon: const Icon(Icons.arrow_back_rounded),
             onPressed: () async {
               await _saveNoteImmediate();
-              if (context.mounted) Navigator.pop(context);
+              if (mounted) Navigator.of(context).pop();
             },
           ),
           title: Row(
@@ -357,13 +373,22 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
               onSelected: (val) async {
                 switch (val) {
                   case 'checklist':
-                    setState(() {
-                      final newIsChecklist = !_currentNote.isChecklist;
-                      _currentNote = _currentNote.copyWith(isChecklist: newIsChecklist);
-                      if (!newIsChecklist) {
-                        _initQuillController(_currentNote.content);
-                      }
-                    });
+                    final newIsChecklist = !_currentNote.isChecklist;
+                    if (newIsChecklist) {
+                      // Switching to checklist: sync latest Quill delta first
+                      final currentDelta = jsonEncode(_quillController.document.toDelta().toJson());
+                      setState(() {
+                        _currentNote = _currentNote.copyWith(isChecklist: true, content: currentDelta);
+                      });
+                    } else {
+                      // Switching to rich text: reinitialize Quill with current checklist content
+                      _quillController.removeListener(_onQuillChanged);
+                      _quillController.dispose();
+                      _initQuillController(_currentNote.content);
+                      setState(() {
+                        _currentNote = _currentNote.copyWith(isChecklist: false);
+                      });
+                    }
                     _triggerAutoSave();
                     break;
                   case 'folder':
@@ -376,10 +401,14 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                     _copyToClipboard();
                     break;
                   case 'archive':
+                    final newArchivedState = !_currentNote.isArchived;
+                    _currentNote = _currentNote.copyWith(isArchived: newArchivedState);
                     await ref.read(noteRepositoryProvider).toggleArchive(_currentNote.id);
                     if (context.mounted) Navigator.pop(context);
                     break;
                   case 'delete':
+                    _isDeleted = true;
+                    _autoSaveTimer?.cancel();
                     await ref.read(noteRepositoryProvider).deleteNote(_currentNote.id);
                     if (context.mounted) Navigator.pop(context);
                     break;
