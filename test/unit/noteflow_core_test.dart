@@ -134,6 +134,41 @@ Future<void> main() async {
   expect(checklistOps.any((op) => op is Map && op['attributes']?['list'] == 'unchecked'), 'Unchecked list attribute generated in Delta');
   expect(checklistOps.any((op) => op is Map && op['attributes']?['list'] == 'checked'), 'Checked list attribute generated in Delta');
 
+  // --- Suite 2.5: Note Card Rich Text Snippet Parsing ---
+  final inlineSpans = NoteHelper.parseInlineMarkdown('Buy **milk** and *eggs*');
+  expect(inlineSpans.length == 4, 'Inline markdown parsed into 4 spans');
+  expect(inlineSpans[0].text == 'Buy ', 'First span plain text');
+  expect(inlineSpans[1].text == 'milk' && inlineSpans[1].isBold, 'Second span bold text');
+  expect(inlineSpans[2].text == ' and ', 'Third span plain text');
+  expect(inlineSpans[3].text == 'eggs' && inlineSpans[3].isItalic, 'Fourth span italic text');
+
+  final codeSpans = NoteHelper.parseInlineMarkdown('Run `git commit` now');
+  expect(codeSpans.any((s) => s.text == 'git commit' && s.isCode), 'Inline code parsed with isCode flag');
+
+  final strikeAndUnderlineSpans = NoteHelper.parseInlineMarkdown('~~Done~~ and <u>Important</u>');
+  expect(strikeAndUnderlineSpans.any((s) => s.text == 'Done' && s.isStrike), 'Strikethrough parsed with isStrike flag');
+  expect(strikeAndUnderlineSpans.any((s) => s.text == 'Important' && s.isUnderline), 'Underline parsed with isUnderline flag');
+
+  // Delta to RichLines parsing
+  const richDeltaJson = '[{"insert":"Kickoff Meeting"},{"insert":"\\n","attributes":{"header":1}},{"insert":"Target: "},{"insert":"v1.0.5 Release","attributes":{"bold":true}},{"insert":"\\n"},{"insert":"Verify NoteCard styles"},{"insert":"\\n","attributes":{"list":"bullet"}},{"insert":"Step One"},{"insert":"\\n","attributes":{"list":"ordered"}},{"insert":"Step Two"},{"insert":"\\n","attributes":{"list":"ordered"}},{"insert":"Remember this"},{"insert":"\\n","attributes":{"blockquote":true}}]';
+  final richLines = NoteHelper.parseToRichLines(richDeltaJson);
+  expect(richLines.length == 6, 'Parsed 6 rich lines from Delta JSON');
+  expect(richLines[0].header == 1 && richLines[0].plainText == 'Kickoff Meeting', 'H1 header line parsed');
+  expect(richLines[1].spans.any((s) => s.text == 'v1.0.5 Release' && s.isBold), 'Inline bold span parsed in rich lines');
+  expect(richLines[2].listType == 'bullet' && richLines[2].plainText == 'Verify NoteCard styles', 'Bullet list line parsed');
+  expect(richLines[3].listType == 'ordered' && richLines[3].listIndex == 1, 'Ordered list line 1 has index 1');
+  expect(richLines[4].listType == 'ordered' && richLines[4].listIndex == 2, 'Ordered list line 2 has index 2');
+  expect(richLines[5].isBlockquote == true && richLines[5].plainText == 'Remember this', 'Blockquote line parsed');
+
+  // Markdown note to RichLines parsing (for legacy notes)
+  const legacyMarkdown = '# Release Roadmap\n- Deploy **v1.0.5**\n> Offline-First NotePad';
+  final legacyLines = NoteHelper.parseToRichLines(legacyMarkdown);
+  expect(legacyLines.length == 3, 'Parsed 3 rich lines from legacy Markdown');
+  expect(legacyLines[0].header == 1 && legacyLines[0].plainText == 'Release Roadmap', 'Legacy H1 converted and parsed');
+  expect(legacyLines[1].listType == 'bullet', 'Legacy bullet list converted and parsed');
+  expect(legacyLines[1].spans.any((s) => s.text == 'v1.0.5' && s.isBold), 'Legacy inline bold converted and parsed');
+  expect(legacyLines[2].isBlockquote == true, 'Legacy blockquote converted and parsed');
+
   // --- Suite 3: DateFormatter ---
   final smartNow = DateFormatter.formatSmart(DateTime.now());
   expect(smartNow == 'Just now', 'Smart now format');
@@ -357,5 +392,5 @@ Future<void> main() async {
   // Clean up temp file
   tempDir.deleteSync(recursive: true);
 
-  stdout.writeln('ALL NOTEFLOW TESTS PASSED! (57/57 Assertions) ✓');
+  stdout.writeln('ALL NOTEFLOW TESTS PASSED! (76/76 Assertions) ✓');
 }

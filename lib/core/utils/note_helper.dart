@@ -113,7 +113,11 @@ class NoteHelper {
     return jsonEncode(_simplifyOps(ops));
   }
 
-  static void _parseInlineMarkdownToOps(String line, List<Map<String, dynamic>> ops) {
+  /// Parses a single line of markdown text into a list of [NoteSpan]s preserving inline styles.
+  static List<NoteSpan> parseInlineMarkdown(String line) {
+    if (line.isEmpty) return const [];
+
+    final List<NoteSpan> spans = [];
     final inlineRegex = RegExp(
       r'(\*\*\*(.+?)\*\*\*)|(___(.+?)___)|(\*\*(.+?)\*\*)|(__([^_]+)__)|(\*([^*]+)\*)|(_([^_]+)_)|(~~(.+?)~~)|(`(.+?)`)|(<u>(.+?)</u>)|\[([^\]]+)\]\(([^)]+)\)',
     );
@@ -121,57 +125,193 @@ class NoteHelper {
     int lastEnd = 0;
     for (final match in inlineRegex.allMatches(line)) {
       if (match.start > lastEnd) {
-        ops.add({'insert': line.substring(lastEnd, match.start)});
+        spans.add(NoteSpan(text: line.substring(lastEnd, match.start)));
       }
 
       String text = '';
-      final Map<String, dynamic> attrs = {};
+      bool isBold = false;
+      bool isItalic = false;
+      bool isStrike = false;
+      bool isCode = false;
+      bool isUnderline = false;
+      String? link;
 
       if (match.group(1) != null) {
         text = match.group(2)!;
-        attrs['bold'] = true;
-        attrs['italic'] = true;
+        isBold = true;
+        isItalic = true;
       } else if (match.group(3) != null) {
         text = match.group(4)!;
-        attrs['bold'] = true;
-        attrs['italic'] = true;
+        isBold = true;
+        isItalic = true;
       } else if (match.group(5) != null) {
         text = match.group(6)!;
-        attrs['bold'] = true;
+        isBold = true;
       } else if (match.group(7) != null) {
         text = match.group(8)!;
-        attrs['bold'] = true;
+        isBold = true;
       } else if (match.group(9) != null) {
         text = match.group(10)!;
-        attrs['italic'] = true;
+        isItalic = true;
       } else if (match.group(11) != null) {
         text = match.group(12)!;
-        attrs['italic'] = true;
+        isItalic = true;
       } else if (match.group(13) != null) {
         text = match.group(14)!;
-        attrs['strike'] = true;
+        isStrike = true;
       } else if (match.group(15) != null) {
         text = match.group(16)!;
-        attrs['code'] = true;
+        isCode = true;
       } else if (match.group(17) != null) {
         text = match.group(18)!;
-        attrs['underline'] = true;
+        isUnderline = true;
       } else if (match.group(19) != null) {
         text = match.group(19)!;
-        attrs['link'] = match.group(20)!;
+        link = match.group(20);
       }
 
-      if (attrs.isNotEmpty) {
-        ops.add({'insert': text, 'attributes': attrs});
-      } else {
-        ops.add({'insert': text});
-      }
+      spans.add(NoteSpan(
+        text: text,
+        isBold: isBold,
+        isItalic: isItalic,
+        isStrike: isStrike,
+        isCode: isCode,
+        isUnderline: isUnderline,
+        link: link,
+      ));
 
       lastEnd = match.end;
     }
 
     if (lastEnd < line.length) {
-      ops.add({'insert': line.substring(lastEnd)});
+      spans.add(NoteSpan(text: line.substring(lastEnd)));
+    }
+
+    return spans;
+  }
+
+  static void _parseInlineMarkdownToOps(String line, List<Map<String, dynamic>> ops) {
+    final spans = parseInlineMarkdown(line);
+    for (final span in spans) {
+      final Map<String, dynamic> attrs = {};
+      if (span.isBold) attrs['bold'] = true;
+      if (span.isItalic) attrs['italic'] = true;
+      if (span.isStrike) attrs['strike'] = true;
+      if (span.isCode) attrs['code'] = true;
+      if (span.isUnderline) attrs['underline'] = true;
+      if (span.link != null) attrs['link'] = span.link;
+
+      if (attrs.isNotEmpty) {
+        ops.add({'insert': span.text, 'attributes': attrs});
+      } else {
+        ops.add({'insert': span.text});
+      }
+    }
+  }
+
+  /// Parses note content (either Quill Delta JSON or Markdown/plain text) into
+  /// a list of [NoteSpanLine]s with block formatting and inline spans.
+  static List<NoteSpanLine> parseToRichLines(String content) {
+    if (content.isEmpty) return const [];
+
+    final deltaJson = isDeltaContent(content) ? content : markdownToDeltaJson(content);
+
+    try {
+      final List<dynamic> ops = jsonDecode(deltaJson) as List<dynamic>;
+      final List<NoteSpanLine> lines = [];
+      List<NoteSpan> currentSpans = [];
+      int currentOrderedIndex = 0;
+
+      for (final op in ops) {
+        if (op is! Map<String, dynamic>) continue;
+        final insert = op['insert'];
+        final attributes = op['attributes'] as Map<String, dynamic>? ?? {};
+
+        if (insert is Map<String, dynamic>) {
+          if (insert.containsKey('image')) {
+            currentSpans.add(const NoteSpan(text: '[Image]', isImage: true));
+          } else if (insert.containsKey('divider')) {
+            if (currentSpans.isNotEmpty) {
+              lines.add(NoteSpanLine(spans: List.of(currentSpans)));
+              currentSpans.clear();
+            }
+            lines.add(const NoteSpanLine(spans: [NoteSpan(text: '———')]));
+          }
+          continue;
+        }
+
+        if (insert is! String) continue;
+
+        final bool isBold = attributes['bold'] == true;
+        final bool isItalic = attributes['italic'] == true;
+        final bool isUnderline = attributes['underline'] == true;
+        final bool isStrike = attributes['strike'] == true;
+        final bool isCode = attributes['code'] == true;
+        final String? link = attributes['link'] is String ? attributes['link'] as String : null;
+
+        if (!insert.contains('\n')) {
+          currentSpans.add(NoteSpan(
+            text: insert,
+            isBold: isBold,
+            isItalic: isItalic,
+            isUnderline: isUnderline,
+            isStrike: isStrike,
+            isCode: isCode,
+            link: link,
+          ));
+        } else {
+          final parts = insert.split('\n');
+          for (int i = 0; i < parts.length; i++) {
+            final part = parts[i];
+            if (part.isNotEmpty) {
+              currentSpans.add(NoteSpan(
+                text: part,
+                isBold: isBold,
+                isItalic: isItalic,
+                isUnderline: isUnderline,
+                isStrike: isStrike,
+                isCode: isCode,
+                link: link,
+              ));
+            }
+
+            if (i < parts.length - 1) {
+              final int? header = attributes['header'] is int
+                  ? attributes['header'] as int
+                  : (attributes['header'] is String ? int.tryParse(attributes['header'] as String) : null);
+              final String? listType = attributes['list'] is String ? attributes['list'] as String : null;
+              final bool isBlockquote = attributes['blockquote'] == true;
+              final bool isCodeBlock = attributes['code-block'] == true;
+
+              int? listIdx;
+              if (listType == 'ordered') {
+                currentOrderedIndex++;
+                listIdx = currentOrderedIndex;
+              } else {
+                currentOrderedIndex = 0;
+              }
+
+              lines.add(NoteSpanLine(
+                spans: List.of(currentSpans),
+                header: header,
+                listType: listType,
+                listIndex: listIdx,
+                isBlockquote: isBlockquote,
+                isCodeBlock: isCodeBlock,
+              ));
+              currentSpans.clear();
+            }
+          }
+        }
+      }
+
+      if (currentSpans.isNotEmpty) {
+        lines.add(NoteSpanLine(spans: List.of(currentSpans)));
+      }
+
+      return lines;
+    } catch (_) {
+      return content.split('\n').map((line) => NoteSpanLine(spans: [NoteSpan(text: line)])).toList();
     }
   }
 
@@ -424,3 +564,56 @@ class _DeltaLine {
     return '$prefix$body';
   }
 }
+
+/// Represents a styled text span extracted from rich note content.
+class NoteSpan {
+  final String text;
+  final bool isBold;
+  final bool isItalic;
+  final bool isUnderline;
+  final bool isStrike;
+  final bool isCode;
+  final String? link;
+  final bool isImage;
+
+  const NoteSpan({
+    required this.text,
+    this.isBold = false,
+    this.isItalic = false,
+    this.isUnderline = false,
+    this.isStrike = false,
+    this.isCode = false,
+    this.link,
+    this.isImage = false,
+  });
+
+  @override
+  String toString() => 'NoteSpan("$text", bold: $isBold, italic: $isItalic, code: $isCode)';
+}
+
+/// Represents a single line of rich spans along with block formatting attributes.
+class NoteSpanLine {
+  final List<NoteSpan> spans;
+  final int? header;
+  final String? listType;
+  final int? listIndex;
+  final bool isBlockquote;
+  final bool isCodeBlock;
+
+  const NoteSpanLine({
+    required this.spans,
+    this.header,
+    this.listType,
+    this.listIndex,
+    this.isBlockquote = false,
+    this.isCodeBlock = false,
+  });
+
+  bool get isEmpty => spans.isEmpty || spans.every((s) => s.text.trim().isEmpty);
+
+  String get plainText => spans.map((s) => s.text).join();
+
+  @override
+  String toString() => 'NoteSpanLine(header: $header, list: $listType, spans: $spans)';
+}
+
