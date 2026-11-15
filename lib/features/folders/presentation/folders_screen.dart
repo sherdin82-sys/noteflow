@@ -65,29 +65,103 @@ class _FoldersScreenState extends ConsumerState<FoldersScreen> {
     );
   }
 
-  void _confirmDelete(FolderEntity folder) {
+  void _confirmDelete(FolderEntity folder, int noteCount, List<FolderEntity> otherFolders) {
+    String? targetFolderId;
+
     showDialog(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
-        ),
-        title: const Text('Delete Folder'),
-        content: Text('Are you sure you want to delete "${folder.name}"? Notes inside will not be deleted, but unassigned.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
-            onPressed: () async {
-              await ref.read(noteRepositoryProvider).deleteFolder(folder.id);
-              if (mounted) Navigator.pop(dialogContext);
-            },
-            child: const Text('Delete'),
-          ),
-        ],
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
+            ),
+            title: Text('Delete "${folder.name}"?'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  noteCount > 0
+                      ? 'This folder contains $noteCount ${noteCount == 1 ? 'note' : 'notes'}.'
+                      : 'This folder is empty.',
+                  style: const TextStyle(fontWeight: FontWeight.w500),
+                ),
+                const SizedBox(height: 8),
+                if (noteCount > 0 && otherFolders.isNotEmpty) ...[
+                  const Text('Move notes to:'),
+                  const SizedBox(height: 6),
+                  DropdownButtonFormField<String?>(
+                    value: targetFolderId,
+                    decoration: InputDecoration(
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    items: [
+                      const DropdownMenuItem(
+                        value: null,
+                        child: Text('Unassign (Move to All Notes)'),
+                      ),
+                      ...otherFolders.map(
+                        (f) => DropdownMenuItem(
+                          value: f.id,
+                          child: Text(f.name),
+                        ),
+                      ),
+                    ],
+                    onChanged: (val) {
+                      setDialogState(() {
+                        targetFolderId = val;
+                      });
+                    },
+                  ),
+                ] else if (noteCount > 0) ...[
+                  const Text('Notes inside will be preserved and moved to "All Notes".'),
+                ],
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
+                onPressed: () async {
+                  final repo = ref.read(noteRepositoryProvider);
+                  // If user selected another folder to reassign notes
+                  if (targetFolderId != null) {
+                    final notes = await repo.watchNotes(includeArchived: false).first;
+                    final folderNotes = notes.where((n) => n.folderId == folder.id);
+                    for (final n in folderNotes) {
+                      await repo.saveNote(n.copyWith(folderId: targetFolderId));
+                    }
+                  }
+                  await repo.deleteFolder(folder.id);
+
+                  // If this folder was active in Home screen filter, clear it
+                  if (ref.read(noteFilterProvider).selectedFolderId == folder.id) {
+                    ref.read(noteFilterProvider.notifier).setSelectedFolder(null);
+                  }
+
+                  if (mounted) {
+                    Navigator.pop(dialogContext);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          targetFolderId != null
+                              ? 'Deleted "${folder.name}" and reassigned notes.'
+                              : 'Deleted "${folder.name}". Notes moved to All Notes.',
+                        ),
+                      ),
+                    );
+                  }
+                },
+                child: const Text('Delete'),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -124,7 +198,12 @@ class _FoldersScreenState extends ConsumerState<FoldersScreen> {
           final notes = notesAsync.value ?? [];
 
           return ListView.separated(
-            padding: const EdgeInsets.all(AppConstants.paddingMedium),
+            padding: const EdgeInsets.fromLTRB(
+              AppConstants.paddingMedium,
+              AppConstants.paddingMedium,
+              AppConstants.paddingMedium,
+              100,
+            ),
             itemCount: folders.length,
             separatorBuilder: (_, __) => const SizedBox(height: 8),
             itemBuilder: (context, index) {
@@ -173,7 +252,11 @@ class _FoldersScreenState extends ConsumerState<FoldersScreen> {
                       ),
                       IconButton(
                         icon: const Icon(Icons.delete_outline, size: 18, color: AppColors.danger),
-                        onPressed: () => _confirmDelete(folder),
+                        onPressed: () => _confirmDelete(
+                          folder,
+                          count,
+                          folders.where((f) => f.id != folder.id).toList(),
+                        ),
                       ),
                     ],
                   ),

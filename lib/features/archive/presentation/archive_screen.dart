@@ -138,7 +138,12 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
 
                 return ListView.builder(
                   keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-                  padding: const EdgeInsets.all(AppConstants.paddingMedium),
+                  padding: const EdgeInsets.fromLTRB(
+                    AppConstants.paddingMedium,
+                    AppConstants.paddingMedium,
+                    AppConstants.paddingMedium,
+                    100,
+                  ),
                   itemCount: filtered.length,
                   itemBuilder: (context, index) {
                     final note = filtered[index];

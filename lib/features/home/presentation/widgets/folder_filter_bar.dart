@@ -24,7 +24,7 @@ class FolderFilterBar extends StatelessWidget {
     final isAllSelected = selectedFolderId == null;
 
     return SizedBox(
-      height: 38,
+      height: 40,
       child: ListView(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: AppConstants.paddingMedium),
@@ -117,16 +117,18 @@ class FolderFilterBar extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
-        child: Padding(
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 160),
           padding: const EdgeInsets.symmetric(horizontal: 14),
-          child: Center(
-            child: Text(
-              label,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                color: isSelected ? selectedText : unselectedText,
-              ),
+          alignment: Alignment.center,
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+              color: isSelected ? selectedText : unselectedText,
             ),
           ),
         ),

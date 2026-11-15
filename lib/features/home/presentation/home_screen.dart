@@ -137,8 +137,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 onSelectFolder: (id) => filterNotifier.setSelectedFolder(id),
                 onAddFolder: _showCreateFolderDialog,
               ),
-              loading: () => const SizedBox(height: 38),
-              error: (_, __) => const SizedBox(height: 38),
+              loading: () => const SizedBox(height: 40),
+              error: (_, __) => const SizedBox(height: 40),
             ),
 
             const SizedBox(height: 12),
@@ -205,8 +205,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           ),
                         ],
 
-                        // Extra bottom padding for FAB
-                        const SizedBox(height: 80),
+                        // Extra bottom padding for FAB clearance
+                        const SizedBox(height: 104),
                       ],
                     ),
                   );

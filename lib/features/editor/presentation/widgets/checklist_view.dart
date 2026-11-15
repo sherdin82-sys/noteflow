@@ -31,11 +31,25 @@ class ChecklistView extends StatefulWidget {
 
 class _ChecklistViewState extends State<ChecklistView> {
   final List<ChecklistItem> _items = [];
+  final Map<String, FocusNode> _focusNodes = {};
 
   @override
   void initState() {
     super.initState();
     _parseRawContent(widget.rawContent);
+  }
+
+  FocusNode _getFocusNode(String id) {
+    return _focusNodes.putIfAbsent(id, () => FocusNode());
+  }
+
+  @override
+  void dispose() {
+    for (final node in _focusNodes.values) {
+      node.dispose();
+    }
+    _focusNodes.clear();
+    super.dispose();
   }
 
   @override
@@ -84,19 +98,43 @@ class _ChecklistViewState extends State<ChecklistView> {
     setState(() {});
   }
 
-  void _addItem() {
-    _items.add(ChecklistItem(isCompleted: false, text: ''));
-    _notifyChange();
+  void _addItem({int? afterIndex}) {
+    final newItem = ChecklistItem(isCompleted: false, text: '');
+    setState(() {
+      if (afterIndex != null && afterIndex < _items.length) {
+        _items.insert(afterIndex + 1, newItem);
+      } else {
+        _items.add(newItem);
+      }
+    });
+    widget.onContentChanged(_serialize());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _getFocusNode(newItem.id).requestFocus();
+      }
+    });
   }
 
   void _removeItem(int index) {
-    if (_items.length > 1) {
-      _items.removeAt(index);
-    } else {
-      _items[0].text = '';
-      _items[0].isCompleted = false;
-    }
-    _notifyChange();
+    final removedId = _items[index].id;
+    setState(() {
+      if (_items.length > 1) {
+        _items.removeAt(index);
+        final nextFocusIndex = index > 0 ? index - 1 : 0;
+        if (nextFocusIndex < _items.length) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              _getFocusNode(_items[nextFocusIndex].id).requestFocus();
+            }
+          });
+        }
+      } else {
+        _items[0].text = '';
+        _items[0].isCompleted = false;
+      }
+    });
+    _focusNodes.remove(removedId)?.dispose();
+    widget.onContentChanged(_serialize());
   }
 
   @override
@@ -146,6 +184,8 @@ class _ChecklistViewState extends State<ChecklistView> {
                   // Inline text field
                   Expanded(
                     child: TextFormField(
+                      key: ValueKey('input-${item.id}'),
+                      focusNode: _getFocusNode(item.id),
                       initialValue: item.text,
                       style: TextStyle(
                         fontSize: 16,
@@ -163,7 +203,7 @@ class _ChecklistViewState extends State<ChecklistView> {
                         item.text = val;
                         widget.onContentChanged(_serialize());
                       },
-                      onFieldSubmitted: (_) => _addItem(),
+                      onFieldSubmitted: (_) => _addItem(afterIndex: index),
                     ),
                   ),
 

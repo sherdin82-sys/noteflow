@@ -40,7 +40,7 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
   late NoteEntity _currentNote;
   bool _isLoading = false;
   bool _isSaving = false;
-  String _saveStatus = 'Saved';
+  String _saveStatus = 'Saved locally';
   final _uuid = const Uuid();
 
   @override
@@ -136,7 +136,7 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
     if (mounted) {
       setState(() {
         _isSaving = false;
-        _saveStatus = 'Saved';
+        _saveStatus = 'Saved locally';
       });
     }
   }
@@ -265,10 +265,10 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
           ),
           title: Row(
             children: [
-              // Auto-save status indicator
+              // Auto-save status indicator (100% offline local persistence)
               Icon(
-                _isSaving ? Icons.sync_rounded : Icons.cloud_done_outlined,
-                size: 14,
+                _isSaving ? Icons.sync_rounded : Icons.offline_pin_outlined,
+                size: 15,
                 color: _isSaving ? AppColors.pinColor : AppColors.accent,
               ),
               const SizedBox(width: 6),
@@ -474,28 +474,34 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
               ),
             ),
 
-            // Bottom Controls Bar (Color Tint + Toolbar) safe from navigation gesture bar
-            SafeArea(
-              top: false,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  ColorTintPicker(
-                    selectedIndex: _currentNote.colorIndex,
-                    onSelectColor: (idx) {
-                      setState(() {
-                        _currentNote = _currentNote.copyWith(colorIndex: idx);
-                      });
-                      _triggerAutoSave();
-                    },
+            // Bottom Controls Bar: auto-collapses color tint when keyboard is visible to maximize editor canvas
+            Builder(
+              builder: (context) {
+                final isKeyboardOpen = MediaQuery.of(context).viewInsets.bottom > 0;
+                return SafeArea(
+                  top: false,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (!isKeyboardOpen)
+                        ColorTintPicker(
+                          selectedIndex: _currentNote.colorIndex,
+                          onSelectColor: (idx) {
+                            setState(() {
+                              _currentNote = _currentNote.copyWith(colorIndex: idx);
+                            });
+                            _triggerAutoSave();
+                          },
+                        ),
+                      if (!_currentNote.isChecklist)
+                        EditorToolbar(
+                          controller: _contentController,
+                          onChanged: _triggerAutoSave,
+                        ),
+                    ],
                   ),
-                  if (!_currentNote.isChecklist)
-                    EditorToolbar(
-                      controller: _contentController,
-                      onChanged: _triggerAutoSave,
-                    ),
-                ],
-              ),
+                );
+              },
             ),
           ],
         ),

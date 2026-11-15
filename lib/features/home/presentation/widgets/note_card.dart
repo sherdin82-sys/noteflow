@@ -79,6 +79,15 @@ class NoteCard extends StatelessWidget {
                         color: AppColors.pinColor,
                       ),
                     ),
+                  if (note.isArchived)
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                      icon: Icon(Icons.unarchive_outlined, size: 18, color: secondaryTextColor),
+                      tooltip: 'Restore to Home',
+                      onPressed: onToggleArchive,
+                    ),
                   const SizedBox(width: 4),
                   _buildOptionsMenu(context, secondaryTextColor),
                 ],

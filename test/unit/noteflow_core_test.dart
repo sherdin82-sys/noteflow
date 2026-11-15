@@ -194,6 +194,10 @@ Future<void> main() async {
   expect(loadedFromDisk!.title == 'Durable Disk Note', 'Persisted title matches');
   expect(loadedFromDisk.isPinned == true, 'Persisted pin state matches');
 
+  // Test theme mode persistence across sessions
+  await persistentRepo2.setThemeMode('light');
+  expect(persistentRepo2.themeMode == 'light', 'Theme mode updated in memory');
+
   // Verify deletion persists across sessions
   await persistentRepo2.deleteNote('disk-note-1');
   persistentRepo2.dispose();
@@ -206,10 +210,11 @@ Future<void> main() async {
   await persistentRepo3.init();
   final deletedAfterReload = await persistentRepo3.getNoteById('disk-note-1');
   expect(deletedAfterReload == null, 'Note deletion persisted across app restart');
+  expect(persistentRepo3.themeMode == 'light', 'Theme mode persisted and restored from disk');
   persistentRepo3.dispose();
 
   // Clean up temp file
   tempDir.deleteSync(recursive: true);
 
-  stdout.writeln('ALL NOTEFLOW MILESTONE 1 & 2 TESTS PASSED! (22/22 Assertions) ✓');
+  stdout.writeln('ALL NOTEFLOW MILESTONE 1 & 2 TESTS PASSED! (24/24 Assertions) ✓');
 }

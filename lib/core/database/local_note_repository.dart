@@ -18,6 +18,14 @@ class LocalNoteRepository implements NoteRepository {
   final Future<String> Function()? _directoryProvider;
   File? _resolvedFile;
   bool _initialized = false;
+  String _themeMode = 'dark';
+
+  String get themeMode => _themeMode;
+
+  Future<void> setThemeMode(String mode) async {
+    _themeMode = mode;
+    await _saveToDisk();
+  }
 
   LocalNoteRepository({
     bool seedDemoData = true,
@@ -46,6 +54,9 @@ class LocalNoteRepository implements NoteRepository {
         final content = await file.readAsString();
         if (content.trim().isNotEmpty) {
           final data = jsonDecode(content) as Map<String, dynamic>;
+          if (data.containsKey('theme_mode')) {
+            _themeMode = data['theme_mode'] as String? ?? 'dark';
+          }
           final rawFolders = data['folders'] as List<dynamic>? ?? [];
           final rawNotes = data['notes'] as List<dynamic>? ?? [];
 
@@ -101,6 +112,7 @@ class LocalNoteRepository implements NoteRepository {
       if (file == null) return;
       final payload = {
         'version': 1,
+        'theme_mode': _themeMode,
         'folders': _folders.map((f) => f.toMap()).toList(),
         'notes': _notes.map((n) => n.toMap()).toList(),
       };
