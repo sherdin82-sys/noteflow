@@ -1,12 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:uuid/uuid.dart';
 import '../../../../core/constants/app_constants.dart';
 import '../../../../core/theme/app_colors.dart';
 
 class ChecklistItem {
+  final String id;
   bool isCompleted;
   String text;
 
-  ChecklistItem({required this.isCompleted, required this.text});
+  ChecklistItem({
+    String? id,
+    required this.isCompleted,
+    required this.text,
+  }) : id = id ?? const Uuid().v4();
 }
 
 class ChecklistView extends StatefulWidget {
@@ -117,7 +123,7 @@ class _ChecklistViewState extends State<ChecklistView> {
             final item = _items[index];
 
             return Padding(
-              key: ValueKey('check-$index-${item.hashCode}'),
+              key: ValueKey(item.id),
               padding: const EdgeInsets.symmetric(vertical: 4),
               child: Row(
                 children: [

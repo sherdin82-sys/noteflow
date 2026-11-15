@@ -158,5 +158,58 @@ Future<void> main() async {
 
   repo.dispose();
 
-  stdout.writeln('ALL NOTEFLOW MILESTONE 1 & 2 TESTS PASSED! (18/18 Assertions) ✓');
+  // --- Suite 7: Durable Local Disk Persistence Roundtrip ---
+  final tempDir = Directory.systemTemp.createTempSync('noteflow_test_');
+  final testJsonPath = '${tempDir.path}/test_noteflow_data.json';
+
+  final persistentRepo1 = LocalNoteRepository(
+    seedDemoData: true,
+    enableDiskPersistence: true,
+    customStoragePath: testJsonPath,
+  );
+  await persistentRepo1.init();
+
+  // Create and save a new note to disk
+  final persistentNote = NoteEntity(
+    id: 'disk-note-1',
+    title: 'Durable Disk Note',
+    content: 'Survives application termination and restarts',
+    isPinned: true,
+    createdAt: DateTime.now(),
+    updatedAt: DateTime.now(),
+  );
+  await persistentRepo1.saveNote(persistentNote);
+  persistentRepo1.dispose();
+
+  // Instantiate brand new repository pointing to the same file
+  final persistentRepo2 = LocalNoteRepository(
+    seedDemoData: false,
+    enableDiskPersistence: true,
+    customStoragePath: testJsonPath,
+  );
+  await persistentRepo2.init();
+
+  final loadedFromDisk = await persistentRepo2.getNoteById('disk-note-1');
+  expect(loadedFromDisk != null, 'Note persisted to disk and reloaded successfully');
+  expect(loadedFromDisk!.title == 'Durable Disk Note', 'Persisted title matches');
+  expect(loadedFromDisk.isPinned == true, 'Persisted pin state matches');
+
+  // Verify deletion persists across sessions
+  await persistentRepo2.deleteNote('disk-note-1');
+  persistentRepo2.dispose();
+
+  final persistentRepo3 = LocalNoteRepository(
+    seedDemoData: false,
+    enableDiskPersistence: true,
+    customStoragePath: testJsonPath,
+  );
+  await persistentRepo3.init();
+  final deletedAfterReload = await persistentRepo3.getNoteById('disk-note-1');
+  expect(deletedAfterReload == null, 'Note deletion persisted across app restart');
+  persistentRepo3.dispose();
+
+  // Clean up temp file
+  tempDir.deleteSync(recursive: true);
+
+  stdout.writeln('ALL NOTEFLOW MILESTONE 1 & 2 TESTS PASSED! (22/22 Assertions) ✓');
 }

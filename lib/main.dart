@@ -1,14 +1,29 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_provider.dart';
 import 'features/home/presentation/home_screen.dart';
 
-void main() {
+import 'core/database/database_provider.dart';
+import 'core/database/local_note_repository.dart';
+
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  final repo = LocalNoteRepository(
+    directoryProvider: () async {
+      final dir = await getApplicationDocumentsDirectory();
+      return dir.path;
+    },
+  );
+  await repo.init();
+
   runApp(
-    const ProviderScope(
-      child: NoteFlowApp(),
+    ProviderScope(
+      overrides: [
+        noteRepositoryProvider.overrideWithValue(repo),
+      ],
+      child: const NoteFlowApp(),
     ),
   );
 }

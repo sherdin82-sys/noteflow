@@ -244,10 +244,12 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
     final folders = foldersAsync.value ?? [];
     final currentFolder = folders.where((f) => f.id == _currentNote.folderId).firstOrNull;
 
-    return WillPopScope(
-      onWillPop: () async {
-        await _saveNoteImmediate();
-        return true;
+    return PopScope(
+      canPop: true,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) {
+          _saveNoteImmediate();
+        }
       },
       child: Scaffold(
         backgroundColor: backgroundColor,
@@ -472,23 +474,29 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
               ),
             ),
 
-            // Color Tint Selector Bar
-            ColorTintPicker(
-              selectedIndex: _currentNote.colorIndex,
-              onSelectColor: (idx) {
-                setState(() {
-                  _currentNote = _currentNote.copyWith(colorIndex: idx);
-                });
-                _triggerAutoSave();
-              },
-            ),
-
-            // Formatting Toolbar (when not in checklist mode)
-            if (!_currentNote.isChecklist)
-              EditorToolbar(
-                controller: _contentController,
-                onChanged: _triggerAutoSave,
+            // Bottom Controls Bar (Color Tint + Toolbar) safe from navigation gesture bar
+            SafeArea(
+              top: false,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ColorTintPicker(
+                    selectedIndex: _currentNote.colorIndex,
+                    onSelectColor: (idx) {
+                      setState(() {
+                        _currentNote = _currentNote.copyWith(colorIndex: idx);
+                      });
+                      _triggerAutoSave();
+                    },
+                  ),
+                  if (!_currentNote.isChecklist)
+                    EditorToolbar(
+                      controller: _contentController,
+                      onChanged: _triggerAutoSave,
+                    ),
+                ],
               ),
+            ),
           ],
         ),
       ),

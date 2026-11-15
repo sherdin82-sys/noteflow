@@ -159,6 +159,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       ref.invalidate(activeNotesStreamProvider);
                     },
                     child: ListView(
+                      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
                       padding: const EdgeInsets.symmetric(
                         horizontal: AppConstants.paddingMedium,
                         vertical: AppConstants.paddingSmall,

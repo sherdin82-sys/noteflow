@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import '../../shared/models/note_entity.dart';
 import '../../shared/models/folder_entity.dart';
 import 'note_repository.dart';
@@ -10,9 +12,101 @@ class LocalNoteRepository implements NoteRepository {
   final _notesStreamController = StreamController<List<NoteEntity>>.broadcast();
   final _foldersStreamController = StreamController<List<FolderEntity>>.broadcast();
 
-  LocalNoteRepository({bool seedDemoData = true}) {
-    if (seedDemoData) {
+  final bool _seedDemoData;
+  final bool _enableDiskPersistence;
+  final String? _customStoragePath;
+  final Future<String> Function()? _directoryProvider;
+  File? _resolvedFile;
+  bool _initialized = false;
+
+  LocalNoteRepository({
+    bool seedDemoData = true,
+    bool enableDiskPersistence = true,
+    String? customStoragePath,
+    Future<String> Function()? directoryProvider,
+  })  : _seedDemoData = seedDemoData,
+        _enableDiskPersistence = enableDiskPersistence,
+        _customStoragePath = customStoragePath,
+        _directoryProvider = directoryProvider {
+    if (_seedDemoData) {
       _seedInitialData();
+    }
+  }
+
+  Future<void> init() async {
+    if (_initialized) return;
+    if (!_enableDiskPersistence) {
+      _initialized = true;
+      return;
+    }
+
+    try {
+      final file = await _getStorageFile();
+      if (file != null && await file.exists()) {
+        final content = await file.readAsString();
+        if (content.trim().isNotEmpty) {
+          final data = jsonDecode(content) as Map<String, dynamic>;
+          final rawFolders = data['folders'] as List<dynamic>? ?? [];
+          final rawNotes = data['notes'] as List<dynamic>? ?? [];
+
+          _folders.clear();
+          for (final f in rawFolders) {
+            _folders.add(FolderEntity.fromMap(Map<String, dynamic>.from(f as Map)));
+          }
+
+          _notes.clear();
+          for (final n in rawNotes) {
+            _notes.add(NoteEntity.fromMap(Map<String, dynamic>.from(n as Map)));
+          }
+
+          _initialized = true;
+          _emitNotes();
+          _emitFolders();
+          return;
+        }
+      }
+
+      // If file didn't exist or was empty, seed demo data and save to disk
+      if (_seedDemoData && _notes.isNotEmpty) {
+        await _saveToDisk();
+      }
+    } catch (_) {
+      // In case of error (e.g. non-Flutter test environment), maintain in-memory state
+    }
+    _initialized = true;
+  }
+
+  Future<File?> _getStorageFile() async {
+    if (_resolvedFile != null) return _resolvedFile;
+    if (_customStoragePath != null) {
+      _resolvedFile = File(_customStoragePath!);
+      return _resolvedFile;
+    }
+    if (_directoryProvider != null) {
+      try {
+        final dirPath = await _directoryProvider!();
+        _resolvedFile = File('$dirPath/noteflow_data.json');
+        return _resolvedFile;
+      } catch (_) {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  Future<void> _saveToDisk() async {
+    if (!_enableDiskPersistence) return;
+    try {
+      final file = await _getStorageFile();
+      if (file == null) return;
+      final payload = {
+        'version': 1,
+        'folders': _folders.map((f) => f.toMap()).toList(),
+        'notes': _notes.map((n) => n.toMap()).toList(),
+      };
+      await file.writeAsString(jsonEncode(payload), flush: true);
+    } catch (_) {
+      // Silent error fallback
     }
   }
 
@@ -171,12 +265,14 @@ class LocalNoteRepository implements NoteRepository {
       _notes.insert(0, note);
     }
     _emitNotes();
+    await _saveToDisk();
   }
 
   @override
   Future<void> deleteNote(String id) async {
     _notes.removeWhere((n) => n.id == id);
     _emitNotes();
+    await _saveToDisk();
   }
 
   @override
@@ -189,6 +285,7 @@ class LocalNoteRepository implements NoteRepository {
         updatedAt: DateTime.now(),
       );
       _emitNotes();
+      await _saveToDisk();
     }
   }
 
@@ -203,6 +300,7 @@ class LocalNoteRepository implements NoteRepository {
         updatedAt: DateTime.now(),
       );
       _emitNotes();
+      await _saveToDisk();
     }
   }
 
@@ -221,6 +319,7 @@ class LocalNoteRepository implements NoteRepository {
       _folders.add(folder);
     }
     _emitFolders();
+    await _saveToDisk();
   }
 
   @override
@@ -234,6 +333,7 @@ class LocalNoteRepository implements NoteRepository {
     }
     _emitFolders();
     _emitNotes();
+    await _saveToDisk();
   }
 
   void dispose() {

@@ -80,11 +80,20 @@ class NoteCard extends StatelessWidget {
                       ),
                     ),
                   const SizedBox(width: 4),
-                  _buildOptionsMenu(context),
+                  _buildOptionsMenu(context, secondaryTextColor),
                 ],
               ),
 
-              if (plainSnippet.isNotEmpty) ...[
+              if (note.isChecklist) ...[
+                const SizedBox(height: 8),
+                _buildChecklistPreview(
+                  note.content,
+                  isDark,
+                  primaryTextColor,
+                  secondaryTextColor,
+                  subtleTextColor,
+                ),
+              ] else if (plainSnippet.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 Text(
                   plainSnippet,
@@ -162,13 +171,84 @@ class NoteCard extends StatelessWidget {
     );
   }
 
-  Widget _buildOptionsMenu(BuildContext context) {
+  Widget _buildChecklistPreview(
+    String content,
+    bool isDark,
+    Color primaryTextColor,
+    Color secondaryTextColor,
+    Color subtleTextColor,
+  ) {
+    final lines = content.split('\n').where((l) => l.trim().isNotEmpty).toList();
+    if (lines.isEmpty) return const SizedBox.shrink();
+
+    final previewLines = lines.take(3).toList();
+    final remainingCount = lines.length - previewLines.length;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ...previewLines.map((line) {
+          final trimmed = line.trim();
+          final isDone = trimmed.startsWith('[x] ') || trimmed.startsWith('- [x] ');
+          final isPending = trimmed.startsWith('[ ] ') || trimmed.startsWith('- [ ] ');
+          final text = isDone
+              ? (trimmed.startsWith('- [x] ') ? trimmed.substring(6) : trimmed.substring(4))
+              : (isPending
+                  ? (trimmed.startsWith('- [ ] ') ? trimmed.substring(6) : trimmed.substring(4))
+                  : trimmed);
+
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 3),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Icon(
+                  isDone
+                      ? Icons.check_circle_rounded
+                      : (isPending ? Icons.radio_button_unchecked_rounded : Icons.circle),
+                  size: isPending || isDone ? 14 : 6,
+                  color: isDone ? AppColors.accent : subtleTextColor,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    text,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: isDone ? subtleTextColor : secondaryTextColor,
+                      decoration: isDone ? TextDecoration.lineThrough : null,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }),
+        if (remainingCount > 0)
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Text(
+              '+$remainingCount more items',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                color: subtleTextColor,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildOptionsMenu(BuildContext context, Color secondaryTextColor) {
     return SizedBox(
       width: 24,
       height: 24,
       child: PopupMenuButton<String>(
         padding: EdgeInsets.zero,
-        icon: const Icon(Icons.more_vert, size: 18),
+        icon: Icon(Icons.more_vert, size: 18, color: secondaryTextColor),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
         ),

@@ -7,6 +7,7 @@ import '../../../core/database/database_provider.dart';
 import '../../../shared/models/note_entity.dart';
 import '../../../shared/widgets/empty_state_view.dart';
 import '../../home/presentation/widgets/note_card.dart';
+import '../../editor/presentation/note_editor_screen.dart';
 
 class ArchiveScreen extends ConsumerStatefulWidget {
   const ArchiveScreen({super.key});
@@ -23,6 +24,20 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _navigateToEditor(NoteEntity note) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => NoteEditorScreen(
+          noteId: note.id,
+          initialNote: note,
+          initialFolderId: note.folderId,
+          isChecklist: note.isChecklist,
+        ),
+      ),
+    );
   }
 
   void _confirmDelete(NoteEntity note) {
@@ -59,7 +74,11 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
     final secondaryTextColor = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
 
     final archivedNotesAsync = ref.watch(archivedNotesStreamProvider);
+    final foldersAsync = ref.watch(foldersStreamProvider);
     final repo = ref.read(noteRepositoryProvider);
+
+    final folders = foldersAsync.value ?? [];
+    final folderMap = {for (var f in folders) f.id: f};
 
     return Scaffold(
       appBar: AppBar(
@@ -118,6 +137,7 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
                 }
 
                 return ListView.builder(
+                  keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
                   padding: const EdgeInsets.all(AppConstants.paddingMedium),
                   itemCount: filtered.length,
                   itemBuilder: (context, index) {
@@ -126,7 +146,8 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
                       padding: const EdgeInsets.only(bottom: 10),
                       child: NoteCard(
                         note: note,
-                        onTap: () {},
+                        folder: note.folderId != null ? folderMap[note.folderId] : null,
+                        onTap: () => _navigateToEditor(note),
                         onTogglePin: () {},
                         onToggleArchive: () async {
                           await repo.toggleArchive(note.id);

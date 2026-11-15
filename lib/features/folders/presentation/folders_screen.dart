@@ -7,6 +7,7 @@ import '../../../core/theme/app_typography.dart';
 import '../../../core/database/database_provider.dart';
 import '../../../shared/models/folder_entity.dart';
 import '../../../shared/widgets/empty_state_view.dart';
+import '../../home/providers/home_notes_provider.dart';
 
 class FoldersScreen extends ConsumerStatefulWidget {
   const FoldersScreen({super.key});
@@ -140,6 +141,10 @@ class _FoldersScreenState extends ConsumerState<FoldersScreen> {
                   ),
                 ),
                 child: ListTile(
+                  onTap: () {
+                    ref.read(noteFilterProvider.notifier).setSelectedFolder(folder.id);
+                    Navigator.pop(context);
+                  },
                   leading: Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
