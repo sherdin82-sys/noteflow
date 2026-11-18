@@ -7,6 +7,8 @@ class NoteEntity {
   final bool isArchived;
   final bool isChecklist;
   final int colorIndex;
+  final String? audioPath;
+  final int? audioDurationMs;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -19,9 +21,13 @@ class NoteEntity {
     this.isArchived = false,
     this.isChecklist = false,
     this.colorIndex = 0,
+    this.audioPath,
+    this.audioDurationMs,
     required this.createdAt,
     required this.updatedAt,
   });
+
+  bool get hasAudio => audioPath != null && audioPath!.trim().isNotEmpty;
 
   NoteEntity copyWith({
     String? id,
@@ -33,6 +39,9 @@ class NoteEntity {
     bool? isArchived,
     bool? isChecklist,
     int? colorIndex,
+    String? audioPath,
+    bool clearAudio = false,
+    int? audioDurationMs,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -45,6 +54,8 @@ class NoteEntity {
       isArchived: isArchived ?? this.isArchived,
       isChecklist: isChecklist ?? this.isChecklist,
       colorIndex: colorIndex ?? this.colorIndex,
+      audioPath: clearAudio ? null : (audioPath ?? this.audioPath),
+      audioDurationMs: clearAudio ? null : (audioDurationMs ?? this.audioDurationMs),
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -60,6 +71,8 @@ class NoteEntity {
       'is_archived': isArchived ? 1 : 0,
       'is_checklist': isChecklist ? 1 : 0,
       'color_index': colorIndex,
+      'audio_path': audioPath,
+      'audio_duration_ms': audioDurationMs,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
     };
@@ -75,6 +88,8 @@ class NoteEntity {
       isArchived: (map['is_archived'] as int? ?? 0) == 1,
       isChecklist: (map['is_checklist'] as int? ?? 0) == 1,
       colorIndex: map['color_index'] as int? ?? 0,
+      audioPath: map['audio_path'] as String?,
+      audioDurationMs: map['audio_duration_ms'] as int?,
       createdAt: DateTime.tryParse(map['created_at'] as String? ?? '') ?? DateTime.now(),
       updatedAt: DateTime.tryParse(map['updated_at'] as String? ?? '') ?? DateTime.now(),
     );

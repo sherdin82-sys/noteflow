@@ -34,7 +34,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     super.dispose();
   }
 
-  void _navigateToEditor({NoteEntity? note, String? noteId, bool isChecklist = false}) {
+  void _navigateToEditor({
+    NoteEntity? note,
+    String? noteId,
+    bool isChecklist = false,
+    bool isVoiceNote = false,
+  }) {
     final filterState = ref.read(noteFilterProvider);
     Navigator.push(
       context,
@@ -44,6 +49,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           initialNote: note,
           initialFolderId: note?.folderId ?? filterState.selectedFolderId,
           isChecklist: note?.isChecklist ?? isChecklist,
+          isVoiceNote: isVoiceNote || (note?.hasAudio ?? false),
         ),
       ),
     );
@@ -322,6 +328,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 onTap: () {
                   Navigator.pop(bottomContext);
                   _navigateToEditor(isChecklist: true);
+                },
+              ),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.redAccent.withAlpha(20),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.mic_rounded, color: Colors.redAccent),
+                ),
+                title: const Text('Voice Note', style: TextStyle(fontWeight: FontWeight.w600)),
+                subtitle: const Text('Record audio memo with notes and playback'),
+                onTap: () {
+                  Navigator.pop(bottomContext);
+                  _navigateToEditor(isVoiceNote: true);
                 },
               ),
             ],

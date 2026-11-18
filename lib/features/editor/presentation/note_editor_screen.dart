@@ -16,12 +16,14 @@ import 'widgets/color_tint_picker.dart';
 import 'widgets/editor_toolbar.dart';
 import 'widgets/checklist_view.dart';
 import 'widgets/note_stats_modal.dart';
+import 'widgets/voice_note_widget.dart';
 
 class NoteEditorScreen extends ConsumerStatefulWidget {
   final String? noteId;
   final NoteEntity? initialNote;
   final String? initialFolderId;
   final bool isChecklist;
+  final bool isVoiceNote;
 
   const NoteEditorScreen({
     super.key,
@@ -29,6 +31,7 @@ class NoteEditorScreen extends ConsumerStatefulWidget {
     this.initialNote,
     this.initialFolderId,
     this.isChecklist = false,
+    this.isVoiceNote = false,
   });
 
   @override
@@ -48,6 +51,7 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
   bool _isSaving = false;
   bool _isDeleted = false;
   bool _isNotePersisted = false;
+  bool _showAudioRecorder = false;
   String _saveStatus = 'Saved locally';
   final _uuid = const Uuid();
 
@@ -55,6 +59,8 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
   void initState() {
     super.initState();
     final now = DateTime.now();
+
+    _showAudioRecorder = widget.isVoiceNote || (widget.initialNote?.hasAudio ?? false);
 
     if (widget.initialNote != null) {
       _currentNote = widget.initialNote!;
@@ -74,8 +80,8 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
 
     _titleController = TextEditingController(text: _isLoading ? '' : _currentNote.title);
 
-    // Auto-focus Body Editor for new rich text notes to immediately open soft keyboard
-    if (!_isNotePersisted && !widget.isChecklist) {
+    // Auto-focus Body Editor for new rich text notes to immediately open soft keyboard (skip for voice notes to avoid blocking audio recorder)
+    if (!_isNotePersisted && !widget.isChecklist && !widget.isVoiceNote) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         _quillController.updateSelection(
@@ -140,6 +146,9 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
     final existing = await repo.getNoteById(widget.noteId!);
     if (existing != null) {
       _currentNote = existing;
+      if (existing.hasAudio) {
+        _showAudioRecorder = true;
+      }
     } else {
       _currentNote = _createDefaultNote(DateTime.now());
     }
@@ -217,8 +226,8 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
 
     final plainText = NoteHelper.extractPlainText(contentToSave).trim();
 
-    // If this is a new note and both title and content are blank, discard it
-    if (!_isNotePersisted && title.isEmpty && plainText.isEmpty) {
+    // If this is a new note and both title and content are blank (and no audio), discard it
+    if (!_isNotePersisted && title.isEmpty && plainText.isEmpty && !_currentNote.hasAudio) {
       return;
     }
 
@@ -336,8 +345,8 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
 
     final plainText = NoteHelper.extractPlainText(contentToSave).trim();
 
-    // If new note and completely empty, discard without saving to archive
-    if (!_isNotePersisted && title.isEmpty && plainText.isEmpty) {
+    // If new note and completely empty (and no audio), discard without saving to archive
+    if (!_isNotePersisted && title.isEmpty && plainText.isEmpty && !_currentNote.hasAudio) {
       if (mounted) Navigator.of(context).pop();
       return;
     }
@@ -483,6 +492,19 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
               },
             ),
 
+            IconButton(
+              icon: Icon(
+                _currentNote.hasAudio ? Icons.mic_rounded : Icons.mic_none_rounded,
+                color: _currentNote.hasAudio ? AppColors.primary : secondaryTextColor,
+              ),
+              tooltip: _currentNote.hasAudio ? 'Voice Memo Attached' : 'Record Voice Memo',
+              onPressed: () {
+                setState(() {
+                  _showAudioRecorder = true;
+                });
+              },
+            ),
+
             PopupMenuButton<String>(
               icon: Icon(Icons.more_vert, color: secondaryTextColor),
               shape: RoundedRectangleBorder(
@@ -490,6 +512,11 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
               ),
               onSelected: (val) async {
                 switch (val) {
+                  case 'voice':
+                    setState(() {
+                      _showAudioRecorder = true;
+                    });
+                    break;
                   case 'checklist':
                     final newIsChecklist = !_currentNote.isChecklist;
                     if (newIsChecklist) {
@@ -527,6 +554,20 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                 }
               },
               itemBuilder: (context) => [
+                PopupMenuItem(
+                  value: 'voice',
+                  child: Row(
+                    children: [
+                      Icon(
+                        _currentNote.hasAudio ? Icons.mic_rounded : Icons.mic_none_rounded,
+                        size: 18,
+                        color: _currentNote.hasAudio ? AppColors.primary : null,
+                      ),
+                      const SizedBox(width: 10),
+                      Text(_currentNote.hasAudio ? 'Voice Memo Attached' : 'Record Voice Memo'),
+                    ],
+                  ),
+                ),
                 PopupMenuItem(
                   value: 'checklist',
                   child: Row(
@@ -610,6 +651,32 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                         label: Text(currentFolder.name),
                         onPressed: () => _showFolderSelector(folders),
                       ),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+
+                  // Voice Note Player / Recorder Widget (Hybrid Note Header)
+                  if (_currentNote.hasAudio || _showAudioRecorder || widget.isVoiceNote) ...[
+                    VoiceNoteWidget(
+                      audioPath: _currentNote.audioPath,
+                      audioDurationMs: _currentNote.audioDurationMs,
+                      autoStartRecording: !_isNotePersisted && widget.isVoiceNote,
+                      onAudioRecorded: (data) {
+                        setState(() {
+                          _currentNote = _currentNote.copyWith(
+                            audioPath: data.audioPath,
+                            audioDurationMs: data.durationMs,
+                          );
+                        });
+                        _triggerAutoSave();
+                      },
+                      onAudioDeleted: () {
+                        setState(() {
+                          _currentNote = _currentNote.copyWith(clearAudio: true);
+                          _showAudioRecorder = false;
+                        });
+                        _triggerAutoSave();
+                      },
                     ),
                     const SizedBox(height: 8),
                   ],

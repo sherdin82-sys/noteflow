@@ -4,6 +4,7 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_typography.dart';
 import '../../../../core/utils/date_formatter.dart';
 import '../../../../core/utils/note_helper.dart';
+import '../../../../core/utils/audio_helper.dart';
 import '../../../../shared/models/note_entity.dart';
 import '../../../../shared/models/folder_entity.dart';
 import 'rich_note_preview.dart';
@@ -93,6 +94,46 @@ class NoteCard extends StatelessWidget {
                   _buildOptionsMenu(context, secondaryTextColor),
                 ],
               ),
+
+              if (note.hasAudio) ...[
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withAlpha(isDark ? 35 : 20),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: AppColors.primary.withAlpha(isDark ? 50 : 35),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.mic_rounded, size: 14, color: AppColors.primary),
+                      const SizedBox(width: 5),
+                      Text(
+                        'Voice Note',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary,
+                        ),
+                      ),
+                      if (note.audioDurationMs != null && note.audioDurationMs! > 0) ...[
+                        const SizedBox(width: 6),
+                        Text(
+                          '• ${AudioHelper.formatDurationMs(note.audioDurationMs!)}',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                            color: secondaryTextColor,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
 
               if (isChecklist) ...[
                 const SizedBox(height: 8),

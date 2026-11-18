@@ -5,6 +5,7 @@ import '../../lib/shared/models/folder_entity.dart';
 import '../../lib/shared/models/note_filter.dart';
 import '../../lib/core/utils/note_helper.dart';
 import '../../lib/core/utils/date_formatter.dart';
+import '../../lib/core/utils/audio_helper.dart';
 import '../../lib/core/database/local_note_repository.dart';
 
 void expect(bool condition, String message) {
@@ -820,14 +821,8 @@ Future<void> main() async {
   expect(personalResult.length == 1 && personalResult.first.id == 'n3', 'Personal filter returns only active notes assigned to Personal');
 
   // Test 5: Text Note Body Editor Auto-Focus Requirements (BUG 1)
-  // When creating a new text note:
-  // - Body editor receives initial focus (NOT title)
-  // - Soft keyboard opens automatically
-  // - Cursor positioned at offset 0
-  // When opening existing note:
-  // - Keyboard stays closed, body autoFocus is false
-  bool computeBodyEditorAutoFocus({required bool isPersisted, required bool isChecklist}) {
-    return !isPersisted && !isChecklist;
+  bool computeBodyEditorAutoFocus({required bool isPersisted, required bool isChecklist, bool isVoiceNote = false}) {
+    return !isPersisted && !isChecklist && !isVoiceNote;
   }
 
   expect(computeBodyEditorAutoFocus(isPersisted: false, isChecklist: false) == true, 'New text note auto-focuses body editor');
@@ -835,5 +830,73 @@ Future<void> main() async {
   expect(computeBodyEditorAutoFocus(isPersisted: false, isChecklist: true) == false, 'New checklist delegates focus to checklist view');
   expect(computeBodyEditorAutoFocus(isPersisted: true, isChecklist: true) == false, 'Existing checklist does NOT auto-focus body editor');
 
-  stdout.writeln('ALL NOTEFLOW TESTS PASSED! (183/183 Assertions) ✓');
+  // --- Suite 11: Voice Notes Feature ---
+  // Test 1: AudioHelper duration formatting
+  expect(AudioHelper.formatDuration(const Duration(seconds: 5)) == '0:05', 'Formats 5s as 0:05');
+  expect(AudioHelper.formatDuration(const Duration(minutes: 2, seconds: 14)) == '2:14', 'Formats 2m 14s as 2:14');
+  expect(AudioHelper.formatDuration(const Duration(hours: 1, minutes: 2, seconds: 3)) == '1:02:03', 'Formats 1h 2m 3s as 1:02:03');
+  expect(AudioHelper.formatDurationMs(45000) == '0:45', 'Formats 45000ms as 0:45');
+  expect(AudioHelper.formatDurationMs(-100) == '0:00', 'Formats negative ms as 0:00');
+  expect(AudioHelper.formatTwoDigits(const Duration(seconds: 8)) == '00:08', 'Formats two digits 8s as 00:08');
+  expect(AudioHelper.formatTwoDigits(const Duration(minutes: 1, seconds: 30)) == '01:30', 'Formats two digits 1m 30s as 01:30');
+  expect(AudioHelper.formatTwoDigits(const Duration(hours: 1, minutes: 5, seconds: 20)) == '1:05:20', 'Formats two digits 1h 5m 20s as 1:05:20');
+
+  // Test 2: NoteEntity Audio Serialization & copyWith
+  final voiceNote = NoteEntity(
+    id: 'vn-1',
+    title: 'Standup Voice Memo',
+    content: '[{"insert":"Meeting summary points\\n"}]',
+    audioPath: '/data/user/0/com.noteflow.app/app_flutter/voice_notes/voice_123.m4a',
+    audioDurationMs: 42000,
+    createdAt: DateTime.now(),
+    updatedAt: DateTime.now(),
+  );
+
+  expect(voiceNote.hasAudio == true, 'Voice note hasAudio is true');
+  expect(voiceNote.audioPath == '/data/user/0/com.noteflow.app/app_flutter/voice_notes/voice_123.m4a', 'Audio path stored');
+  expect(voiceNote.audioDurationMs == 42000, 'Audio duration stored');
+
+  // toMap and fromMap serialization round-trip
+  final voiceMap = voiceNote.toMap();
+  expect(voiceMap['audio_path'] == '/data/user/0/com.noteflow.app/app_flutter/voice_notes/voice_123.m4a', 'toMap contains audio_path');
+  expect(voiceMap['audio_duration_ms'] == 42000, 'toMap contains audio_duration_ms');
+
+  final restoredVoiceNote = NoteEntity.fromMap(voiceMap);
+  expect(restoredVoiceNote.hasAudio == true, 'fromMap restores hasAudio');
+  expect(restoredVoiceNote.audioPath == voiceNote.audioPath, 'fromMap restores audioPath');
+  expect(restoredVoiceNote.audioDurationMs == voiceNote.audioDurationMs, 'fromMap restores audioDurationMs');
+
+  // copyWith updates audio
+  final updatedAudio = voiceNote.copyWith(
+    audioPath: '/path/voice_updated.m4a',
+    audioDurationMs: 65000,
+  );
+  expect(updatedAudio.audioPath == '/path/voice_updated.m4a', 'copyWith updates audioPath');
+  expect(updatedAudio.audioDurationMs == 65000, 'copyWith updates audioDurationMs');
+
+  // copyWith(clearAudio: true) clears audio
+  final clearedAudio = voiceNote.copyWith(clearAudio: true);
+  expect(clearedAudio.hasAudio == false, 'clearAudio: true resets hasAudio');
+  expect(clearedAudio.audioPath == null, 'clearAudio: true resets audioPath to null');
+  expect(clearedAudio.audioDurationMs == null, 'clearAudio: true resets audioDurationMs to null');
+
+  // Test 3: LocalNoteRepository Voice Note Persistence
+  final voiceRepo = LocalNoteRepository(seedDemoData: false, enableDiskPersistence: false);
+  await voiceRepo.saveNote(voiceNote);
+  final fetchedVoiceNote = await voiceRepo.getNoteById('vn-1');
+  expect(fetchedVoiceNote != null, 'Voice note retrieved from repository');
+  expect(fetchedVoiceNote!.hasAudio == true, 'Retrieved note preserves hasAudio');
+  expect(fetchedVoiceNote.audioDurationMs == 42000, 'Retrieved note preserves audioDurationMs');
+
+  await voiceRepo.deleteNote('vn-1');
+  final deletedVoiceNote = await voiceRepo.getNoteById('vn-1');
+  expect(deletedVoiceNote == null, 'Voice note successfully deleted from repository');
+
+  // Test 4: Voice Note AutoFocus Rule
+  // New voice note opens voice recording interface, keyboard stays closed to avoid blocking recording controls
+  expect(computeBodyEditorAutoFocus(isPersisted: false, isChecklist: false, isVoiceNote: true) == false, 'New voice note suppresses keyboard auto-focus for recording');
+  expect(computeBodyEditorAutoFocus(isPersisted: false, isChecklist: false, isVoiceNote: false) == true, 'New text note requests keyboard auto-focus');
+  expect(computeBodyEditorAutoFocus(isPersisted: true, isChecklist: false, isVoiceNote: true) == false, 'Existing voice note keeps keyboard closed');
+
+  stdout.writeln('ALL NOTEFLOW TESTS PASSED! (205/205 Assertions) ✓');
 }

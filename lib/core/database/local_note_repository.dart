@@ -282,6 +282,15 @@ class LocalNoteRepository implements NoteRepository {
 
   @override
   Future<void> deleteNote(String id) async {
+    final note = await getNoteById(id);
+    if (note?.audioPath != null) {
+      try {
+        final audioFile = File(note!.audioPath!);
+        if (await audioFile.exists()) {
+          await audioFile.delete();
+        }
+      } catch (_) {}
+    }
     _notes.removeWhere((n) => n.id == id);
     _emitNotes();
     await _saveToDisk();

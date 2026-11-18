@@ -14,6 +14,8 @@ class NotesTableDefinition {
   static const String colIsArchived = 'is_archived';
   static const String colIsChecklist = 'is_checklist';
   static const String colColorIndex = 'color_index';
+  static const String colAudioPath = 'audio_path';
+  static const String colAudioDurationMs = 'audio_duration_ms';
   static const String colCreatedAt = 'created_at';
   static const String colUpdatedAt = 'updated_at';
 
@@ -27,6 +29,8 @@ class NotesTableDefinition {
       $colIsArchived INTEGER NOT NULL DEFAULT 0,
       $colIsChecklist INTEGER NOT NULL DEFAULT 0,
       $colColorIndex INTEGER NOT NULL DEFAULT 0,
+      $colAudioPath TEXT,
+      $colAudioDurationMs INTEGER,
       $colCreatedAt TEXT NOT NULL,
       $colUpdatedAt TEXT NOT NULL
     );
