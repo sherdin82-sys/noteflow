@@ -11,12 +11,26 @@ class NoteFilterNotifier extends StateNotifier<NoteFilterState> {
     state = state.copyWith(searchQuery: query);
   }
 
-  void setSelectedFolder(String? folderId) {
-    if (folderId == null || state.selectedFolderId == folderId) {
-      // Toggle off or clear folder filter
-      state = state.copyWith(clearFolder: true);
+  /// Explicitly select All Notes filter
+  void selectAllNotes() {
+    state = state.copyWith(folderFilter: const FolderFilter.all());
+  }
+
+  /// Explicitly select a specific folder, or toggle off to All Notes if already active
+  void selectFolder(String folderId) {
+    if (state.folderFilter.folderId == folderId) {
+      state = state.copyWith(folderFilter: const FolderFilter.all());
     } else {
-      state = state.copyWith(selectedFolderId: folderId);
+      state = state.copyWith(folderFilter: FolderFilter.folder(folderId));
+    }
+  }
+
+  /// Sets selected folder: null unconditionally selects All Notes
+  void setSelectedFolder(String? folderId) {
+    if (folderId == null) {
+      selectAllNotes();
+    } else {
+      selectFolder(folderId);
     }
   }
 
@@ -53,12 +67,13 @@ final homeNotesProvider = Provider<AsyncValue<HomeNotesData>>((ref) {
   final foldersAsync = ref.watch(foldersStreamProvider);
 
   return notesAsync.whenData((notes) {
-    // Validate selectedFolderId exists in active folders
+    // Validate folderFilter against active folders
     final validFolders = foldersAsync.value ?? [];
-    final activeFolderId = (filter.selectedFolderId != null &&
-            validFolders.any((f) => f.id == filter.selectedFolderId))
-        ? filter.selectedFolderId
-        : null;
+    final activeFolderId = switch (filter.folderFilter) {
+      AllNotesFilter() => null,
+      SpecificFolderFilter(folderId: final id) =>
+        validFolders.any((f) => f.id == id) ? id : null,
+    };
 
     // 1. Filter by folder
     var filtered = notes.where((note) {

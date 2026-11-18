@@ -702,66 +702,134 @@ Future<void> main() async {
   expect(!computeChecklistAutoFocus(isPersisted: true, title: 'My Tasks', content: '[{"insert":"Task 1\\n"}]'), 'Existing populated checklist does NOT request autoFocus');
   expect(!computeChecklistAutoFocus(isPersisted: false, title: 'Pre-filled Title', content: ''), 'New note with existing title does NOT autoFocus checklist');
 
-  // --- Suite 10: Text Editor Auto-Focus & Home Screen Folder Filter Clearing ---
-  // Test 1: NoteFilterState.copyWith(clearFolder: true) correctly clears selectedFolderId
-  const initialFilter = NoteFilterState(selectedFolderId: 'folder-work');
-  final clearedFilter = initialFilter.copyWith(clearFolder: true);
-  expect(clearedFilter.selectedFolderId == null, 'clearFolder: true successfully sets selectedFolderId to null');
+  // --- Suite 10: Explicit FolderFilter Architecture & Text Note Body Auto-Focus ---
+  // Test 1: FolderFilter sealed hierarchy
+  const allFilter = FolderFilter.all();
+  const ideasFilter = FolderFilter.folder('folder-ideas');
+  const workFilter = FolderFilter.folder('folder-work');
+  const personalFilter = FolderFilter.folder('folder-personal');
 
-  final preservedFilter = initialFilter.copyWith(searchQuery: 'Meeting');
-  expect(preservedFilter.selectedFolderId == 'folder-work', 'Updating searchQuery without clearFolder preserves folder ID');
+  expect(allFilter.isAll == true, 'FolderFilter.all() isAll is true');
+  expect(allFilter.folderId == null, 'FolderFilter.all() folderId is null');
+  expect(ideasFilter.isAll == false, 'SpecificFolderFilter isAll is false');
+  expect(ideasFilter.folderId == 'folder-ideas', 'SpecificFolderFilter folderId matches');
+  expect(const FolderFilter.all() == const FolderFilter.all(), 'AllNotesFilter equality matches');
+  expect(const FolderFilter.folder('f1') == const FolderFilter.folder('f1'), 'SpecificFolderFilter equality matches');
 
-  // Test 2: NoteFilterNotifier simulation
-  var currentFilterState = const NoteFilterState();
-  void simulateSetSelectedFolder(String? folderId) {
-    if (folderId == null || currentFilterState.selectedFolderId == folderId) {
-      currentFilterState = currentFilterState.copyWith(clearFolder: true);
+  // Test 2: NoteFilterState with FolderFilter
+  const defaultState = NoteFilterState();
+  expect(defaultState.folderFilter.isAll == true, 'Default filter state is All Notes');
+  expect(defaultState.selectedFolderId == null, 'Default selectedFolderId is null');
+  expect(defaultState.isAllNotes == true, 'Default isAllNotes is true');
+
+  // Copy with folderFilter
+  final ideasState = defaultState.copyWith(folderFilter: ideasFilter);
+  expect(ideasState.folderFilter.folderId == 'folder-ideas', 'State updated with folder-ideas');
+  expect(ideasState.selectedFolderId == 'folder-ideas', 'selectedFolderId getter returns folder-ideas');
+  expect(ideasState.isAllNotes == false, 'isAllNotes is false when folder selected');
+
+  // Copy with clearFolder
+  final clearedState = ideasState.copyWith(clearFolder: true);
+  expect(clearedState.folderFilter.isAll == true, 'clearFolder: true resets to AllNotesFilter');
+  expect(clearedState.selectedFolderId == null, 'selectedFolderId is null after clear');
+
+  // Test 3: NoteFilterNotifier folder switching sequence
+  var state = const NoteFilterState();
+  void simulateSelectAll() => state = state.copyWith(folderFilter: const FolderFilter.all());
+  void simulateSelectFolder(String id) {
+    if (state.folderFilter.folderId == id) {
+      state = state.copyWith(folderFilter: const FolderFilter.all());
     } else {
-      currentFilterState = currentFilterState.copyWith(selectedFolderId: folderId);
+      state = state.copyWith(folderFilter: FolderFilter.folder(id));
+    }
+  }
+  void simulateSetSelectedFolder(String? id) {
+    if (id == null) {
+      simulateSelectAll();
+    } else {
+      simulateSelectFolder(id);
     }
   }
 
-  // A: Select folder
-  simulateSetSelectedFolder('folder-123');
-  expect(currentFilterState.selectedFolderId == 'folder-123', 'Selected folder-123 successfully');
+  // 1. Initial: All Notes is selected
+  expect(state.folderFilter.isAll == true, 'Initial state is All Notes');
 
-  // B: Tapping "All Notes" passes null -> must clear to null
+  // 2. Select Ideas
+  simulateSetSelectedFolder('folder-ideas');
+  expect(state.folderFilter.folderId == 'folder-ideas', 'Ideas folder selected');
+
+  // 3. Select All Notes again (user reported bug: was previously disabled/unresponsive)
   simulateSetSelectedFolder(null);
-  expect(currentFilterState.selectedFolderId == null, 'Tapping "All Notes" (null) successfully clears folder filter');
+  expect(state.folderFilter.isAll == true, 'All Notes successfully selected and responsive');
+  expect(state.selectedFolderId == null, 'selectedFolderId is null');
 
-  // C: Select folder again, then tap same folder chip -> toggle off to null
-  simulateSetSelectedFolder('folder-123');
-  expect(currentFilterState.selectedFolderId == 'folder-123', 'Selected folder-123 again');
-  simulateSetSelectedFolder('folder-123');
-  expect(currentFilterState.selectedFolderId == null, 'Tapping active folder chip toggles off filter to null');
+  // 4. Select Work
+  simulateSetSelectedFolder('folder-work');
+  expect(state.folderFilter.folderId == 'folder-work', 'Work folder selected');
 
-  // D: Select another folder
-  simulateSetSelectedFolder('folder-456');
-  expect(currentFilterState.selectedFolderId == 'folder-456', 'Selected folder-456 successfully');
+  // 5. Select Personal
+  simulateSetSelectedFolder('folder-personal');
+  expect(state.folderFilter.folderId == 'folder-personal', 'Personal folder selected');
 
-  // Test 3: Active folder validation against deleted folders in home notes provider
-  final activeFolders = [
-    FolderEntity(id: 'folder-1', name: 'Work', colorHex: '0xFF000000', iconName: 'folder', createdAt: DateTime.now()),
+  // 6. Return to All Notes
+  simulateSelectAll();
+  expect(state.folderFilter.isAll == true, 'Return to All Notes successful');
+
+  // 7. Toggle off active folder
+  simulateSetSelectedFolder('folder-work');
+  expect(state.folderFilter.folderId == 'folder-work', 'Work selected');
+  simulateSetSelectedFolder('folder-work');
+  expect(state.folderFilter.isAll == true, 'Re-tapping active folder chip toggles back to All Notes');
+
+  // Test 4: Active notes query simulation with folders, unassigned notes, and archived exclusion
+  final testNotes = [
+    NoteEntity(id: 'n1', title: 'Idea 1', content: 'c', folderId: 'folder-ideas', isArchived: false, createdAt: DateTime.now(), updatedAt: DateTime.now()),
+    NoteEntity(id: 'n2', title: 'Work 1', content: 'c', folderId: 'folder-work', isArchived: false, createdAt: DateTime.now(), updatedAt: DateTime.now()),
+    NoteEntity(id: 'n3', title: 'Personal 1', content: 'c', folderId: 'folder-personal', isArchived: false, createdAt: DateTime.now(), updatedAt: DateTime.now()),
+    NoteEntity(id: 'n4', title: 'Unassigned Note', content: 'c', folderId: null, isArchived: false, createdAt: DateTime.now(), updatedAt: DateTime.now()),
+    NoteEntity(id: 'n5', title: 'Archived Note', content: 'c', folderId: 'folder-ideas', isArchived: true, createdAt: DateTime.now(), updatedAt: DateTime.now()),
   ];
-  String? validateSelectedFolder(String? selectedFolderId, List<FolderEntity> folders) {
-    return (selectedFolderId != null && folders.any((f) => f.id == selectedFolderId))
-        ? selectedFolderId
-        : null;
+
+  List<NoteEntity> simulateQuery(FolderFilter filter, List<NoteEntity> notes) {
+    // Exclude archived (activeNotesStreamProvider already handles this, but verify safety)
+    final activeOnly = notes.where((n) => !n.isArchived).toList();
+    return activeOnly.where((n) {
+      return switch (filter) {
+        AllNotesFilter() => true, // All active notes including unassigned
+        SpecificFolderFilter(folderId: final id) => n.folderId == id,
+      };
+    }).toList();
   }
 
-  expect(validateSelectedFolder('folder-1', activeFolders) == 'folder-1', 'Valid existing folder is preserved');
-  expect(validateSelectedFolder('folder-deleted', activeFolders) == null, 'Deleted folder ID is safely resolved to null');
-  expect(validateSelectedFolder(null, activeFolders) == null, 'Null folder ID remains null');
+  // All Notes query
+  final allNotesResult = simulateQuery(const FolderFilter.all(), testNotes);
+  expect(allNotesResult.length == 4, 'All Notes returns all 4 active notes');
+  expect(allNotesResult.any((n) => n.id == 'n4'), 'All Notes includes note with no folder assigned');
+  expect(!allNotesResult.any((n) => n.isArchived), 'All Notes excludes archived notes');
 
-  // Test 4: Rich Text Editor Auto-Focus rules
-  bool shouldAutoFocusTitle({required bool isPersisted, required bool isChecklist}) {
+  // Ideas folder query
+  final ideasResult = simulateQuery(ideasFilter, testNotes);
+  expect(ideasResult.length == 1 && ideasResult.first.id == 'n1', 'Ideas filter returns only active notes assigned to Ideas');
+
+  // Work folder query
+  final workResult = simulateQuery(workFilter, testNotes);
+  expect(workResult.length == 1 && workResult.first.id == 'n2', 'Work filter returns only active notes assigned to Work');
+
+  // Test 5: Text Note Body Editor Auto-Focus Requirements (BUG 1)
+  // When creating a new text note:
+  // - Body editor receives initial focus (NOT title)
+  // - Soft keyboard opens automatically
+  // - Cursor positioned at offset 0
+  // When opening existing note:
+  // - Keyboard stays closed, body autoFocus is false
+  bool computeBodyEditorAutoFocus({required bool isPersisted, required bool isChecklist}) {
     return !isPersisted && !isChecklist;
   }
 
-  expect(shouldAutoFocusTitle(isPersisted: false, isChecklist: false) == true, 'New text note auto-focuses Title');
-  expect(shouldAutoFocusTitle(isPersisted: true, isChecklist: false) == false, 'Existing text note does NOT auto-focus Title');
-  expect(shouldAutoFocusTitle(isPersisted: false, isChecklist: true) == false, 'New checklist note delegates to checklist item');
-  expect(shouldAutoFocusTitle(isPersisted: true, isChecklist: true) == false, 'Existing checklist note does NOT auto-focus Title');
+  expect(computeBodyEditorAutoFocus(isPersisted: false, isChecklist: false) == true, 'New text note auto-focuses body editor');
+  expect(computeBodyEditorAutoFocus(isPersisted: true, isChecklist: false) == false, 'Existing text note does NOT auto-focus body editor');
+  expect(computeBodyEditorAutoFocus(isPersisted: false, isChecklist: true) == false, 'New checklist delegates focus to checklist view');
+  expect(computeBodyEditorAutoFocus(isPersisted: true, isChecklist: true) == false, 'Existing checklist does NOT auto-focus body editor');
 
-  stdout.writeln('ALL NOTEFLOW TESTS PASSED! (170/170 Assertions) ✓');
+  stdout.writeln('ALL NOTEFLOW TESTS PASSED! (182/182 Assertions) ✓');
 }

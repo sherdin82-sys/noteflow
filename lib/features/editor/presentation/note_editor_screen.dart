@@ -74,11 +74,32 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
 
     _titleController = TextEditingController(text: _isLoading ? '' : _currentNote.title);
 
-    // Auto-focus Title for new rich text notes to immediately open soft keyboard
+    // Auto-focus Body Editor for new rich text notes to immediately open soft keyboard
     if (!_isNotePersisted && !widget.isChecklist) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          _titleFocusNode.requestFocus();
+        if (!mounted) return;
+        _quillController.updateSelection(
+          const TextSelection.collapsed(offset: 0),
+          ChangeSource.local,
+        );
+        _editorFocusNode.requestFocus();
+
+        // When navigating from a sheet/route transition, re-verify focus once transition completes
+        final modalRoute = ModalRoute.of(context);
+        if (modalRoute != null && modalRoute.animation != null && !modalRoute.animation!.isCompleted) {
+          void onRouteCompleted(AnimationStatus status) {
+            if (status == AnimationStatus.completed) {
+              modalRoute.animation?.removeStatusListener(onRouteCompleted);
+              if (mounted && !_editorFocusNode.hasFocus) {
+                _quillController.updateSelection(
+                  const TextSelection.collapsed(offset: 0),
+                  ChangeSource.local,
+                );
+                _editorFocusNode.requestFocus();
+              }
+            }
+          }
+          modalRoute.animation!.addStatusListener(onRouteCompleted);
         }
       });
     }
@@ -646,10 +667,10 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                         controller: _quillController,
                         focusNode: _editorFocusNode,
                         scrollController: _editorScrollController,
-                        config: const QuillEditorConfig(
+                        config: QuillEditorConfig(
                           placeholder: 'Start writing thoughts, tasks, or format with toolbar...',
                           padding: EdgeInsets.zero,
-                          autoFocus: false,
+                          autoFocus: !_isNotePersisted && !widget.isChecklist,
                           scrollable: false,
                           expands: false,
                           showCursor: true,
