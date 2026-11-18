@@ -815,6 +815,10 @@ Future<void> main() async {
   final workResult = simulateQuery(workFilter, testNotes);
   expect(workResult.length == 1 && workResult.first.id == 'n2', 'Work filter returns only active notes assigned to Work');
 
+  // Personal folder query
+  final personalResult = simulateQuery(personalFilter, testNotes);
+  expect(personalResult.length == 1 && personalResult.first.id == 'n3', 'Personal filter returns only active notes assigned to Personal');
+
   // Test 5: Text Note Body Editor Auto-Focus Requirements (BUG 1)
   // When creating a new text note:
   // - Body editor receives initial focus (NOT title)
@@ -831,5 +835,5 @@ Future<void> main() async {
   expect(computeBodyEditorAutoFocus(isPersisted: false, isChecklist: true) == false, 'New checklist delegates focus to checklist view');
   expect(computeBodyEditorAutoFocus(isPersisted: true, isChecklist: true) == false, 'Existing checklist does NOT auto-focus body editor');
 
-  stdout.writeln('ALL NOTEFLOW TESTS PASSED! (182/182 Assertions) ✓');
+  stdout.writeln('ALL NOTEFLOW TESTS PASSED! (183/183 Assertions) ✓');
 }

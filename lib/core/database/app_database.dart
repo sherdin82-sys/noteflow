@@ -1,7 +1,7 @@
-/// Database table schema definitions for Drift and SQLite
-///
-/// NoteFlow uses Drift for type-safe database access and reactive SQL streams.
-/// Both table schemas are declared here according to Drift specifications.
+// Database table schema definitions for Drift and SQLite
+//
+// NoteFlow uses Drift for type-safe database access and reactive SQL streams.
+// Both table schemas are declared here according to Drift specifications.
 
 class NotesTableDefinition {
   static const String tableName = 'notes';
