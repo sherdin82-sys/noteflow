@@ -603,5 +603,73 @@ Future<void> main() async {
   crudRepo.dispose();
   crudTempDir.deleteSync(recursive: true);
 
-  stdout.writeln('ALL NOTEFLOW TESTS PASSED! (128/128 Assertions) ✓');
+  // --- Suite 8: Checklist Editor & Robust Synchronization ---
+  // Test 1: Empty and trimmed checklist prefix recognition in markdownToDeltaJson
+  final deltaUncheckedNoSpace = NoteHelper.markdownToDeltaJson('[ ]');
+  final deltaCheckedNoSpace = NoteHelper.markdownToDeltaJson('[x]');
+  final deltaDashUnchecked = NoteHelper.markdownToDeltaJson('- [ ]');
+  final deltaDashChecked = NoteHelper.markdownToDeltaJson('- [x]');
+
+  final opsUnchecked = jsonDecode(deltaUncheckedNoSpace) as List<dynamic>;
+  final opsChecked = jsonDecode(deltaCheckedNoSpace) as List<dynamic>;
+  final opsDashUnchecked = jsonDecode(deltaDashUnchecked) as List<dynamic>;
+  final opsDashChecked = jsonDecode(deltaDashChecked) as List<dynamic>;
+
+  expect(opsUnchecked.any((o) => o is Map && o['attributes']?['list'] == 'unchecked'), 'markdownToDeltaJson recognizes "[ ]" as unchecked list');
+  expect(opsChecked.any((o) => o is Map && o['attributes']?['list'] == 'checked'), 'markdownToDeltaJson recognizes "[x]" as checked list');
+  expect(opsDashUnchecked.any((o) => o is Map && o['attributes']?['list'] == 'unchecked'), 'markdownToDeltaJson recognizes "- [ ]" as unchecked list');
+  expect(opsDashChecked.any((o) => o is Map && o['attributes']?['list'] == 'checked'), 'markdownToDeltaJson recognizes "- [x]" as checked list');
+
+  // Test 2: isChecklistContent detection with empty markers
+  expect(NoteHelper.isChecklistContent('[ ]'), 'isChecklistContent detects "[ ]"');
+  expect(NoteHelper.isChecklistContent('[x]'), 'isChecklistContent detects "[x]"');
+  expect(NoteHelper.isChecklistContent('- [ ]'), 'isChecklistContent detects "- [ ]"');
+  expect(NoteHelper.isChecklistContent('- [x]'), 'isChecklistContent detects "- [x]"');
+
+  // Test 3: extractPlainText stripping of empty checklist markers
+  expect(NoteHelper.extractPlainText('[ ]').trim().isEmpty, 'extractPlainText strips standalone "[ ]"');
+  expect(NoteHelper.extractPlainText('- [ ]').trim().isEmpty, 'extractPlainText strips standalone "- [ ]"');
+  expect(NoteHelper.extractPlainText('[x]').trim().isEmpty, 'extractPlainText strips standalone "[x]"');
+  expect(NoteHelper.extractPlainText('[ ] \n[ ] ').trim().isEmpty, 'extractPlainText strips multiple empty checklist items');
+  expect(NoteHelper.extractPlainText('[ ] Grocery item').trim() == 'Grocery item', 'extractPlainText extracts text after checklist marker');
+
+  // Test 4: formatForEditor and serialization bidirectional stability (no accumulating "[ ]" prefix)
+  const originalChecklist = '[ ] First task\n[ ] \n[x] Finished task';
+  final deltaOriginal = NoteHelper.markdownToDeltaJson(originalChecklist);
+  final formattedForEditor = NoteHelper.formatForEditor(deltaOriginal);
+
+  final parsedLines = formattedForEditor.split('\n');
+  final simulatedItems = <Map<String, dynamic>>[];
+  for (final l in parsedLines) {
+    final trimmed = l.trim();
+    if (trimmed.isEmpty) continue;
+    if (trimmed == '[x]' || trimmed == '- [x]') {
+      simulatedItems.add({'isCompleted': true, 'text': ''});
+    } else if (trimmed == '[ ]' || trimmed == '- [ ]') {
+      simulatedItems.add({'isCompleted': false, 'text': ''});
+    } else if (trimmed.startsWith('[x] ') || trimmed.startsWith('- [x] ')) {
+      final text = trimmed.startsWith('- [x] ') ? trimmed.substring(6) : trimmed.substring(4);
+      simulatedItems.add({'isCompleted': true, 'text': text});
+    } else if (trimmed.startsWith('[ ] ') || trimmed.startsWith('- [ ] ')) {
+      final text = trimmed.startsWith('- [ ] ') ? trimmed.substring(6) : trimmed.substring(4);
+      simulatedItems.add({'isCompleted': false, 'text': text});
+    }
+  }
+
+  expect(simulatedItems.length == 3, 'Checklist parser extracted 3 items without dropping empty items');
+  expect(simulatedItems[0]['text'] == 'First task' && simulatedItems[0]['isCompleted'] == false, 'Item 0 has correct text and pending status');
+  expect(simulatedItems[1]['text'] == '' && simulatedItems[1]['isCompleted'] == false, 'Item 1 is cleanly empty without literal "[ ]" in description');
+  expect(simulatedItems[2]['text'] == 'Finished task' && simulatedItems[2]['isCompleted'] == true, 'Item 2 has correct text and completed status');
+
+  final reSerialized = simulatedItems.map((it) {
+    final check = it['isCompleted'] == true ? '[x]' : '[ ]';
+    final text = it['text'] as String;
+    return text.isEmpty ? check : '$check $text';
+  }).join('\n');
+
+  final secondDelta = NoteHelper.markdownToDeltaJson(reSerialized);
+  final secondFormatted = NoteHelper.formatForEditor(secondDelta);
+  expect(secondFormatted == formattedForEditor, 'Full round-trip serialization is 100% stable without prefix accumulation');
+
+  stdout.writeln('ALL NOTEFLOW TESTS PASSED! (144/144 Assertions) ✓');
 }

@@ -200,12 +200,22 @@ class NoteCard extends StatelessWidget {
       children: [
         ...previewLines.map((line) {
           final trimmed = line.trim();
-          final isDone = trimmed.startsWith('[x] ') || trimmed.startsWith('- [x] ');
-          final isPending = trimmed.startsWith('[ ] ') || trimmed.startsWith('- [ ] ');
+          final isDone = trimmed == '[x]' ||
+              trimmed == '- [x]' ||
+              trimmed.startsWith('[x] ') ||
+              trimmed.startsWith('- [x] ');
+          final isPending = trimmed == '[ ]' ||
+              trimmed == '- [ ]' ||
+              trimmed.startsWith('[ ] ') ||
+              trimmed.startsWith('- [ ] ');
           final rawText = isDone
-              ? (trimmed.startsWith('- [x] ') ? trimmed.substring(6) : trimmed.substring(4))
+              ? (trimmed == '[x]' || trimmed == '- [x]'
+                  ? ''
+                  : (trimmed.startsWith('- [x] ') ? trimmed.substring(6) : trimmed.substring(4)))
               : (isPending
-                  ? (trimmed.startsWith('- [ ] ') ? trimmed.substring(6) : trimmed.substring(4))
+                  ? (trimmed == '[ ]' || trimmed == '- [ ]'
+                      ? ''
+                      : (trimmed.startsWith('- [ ] ') ? trimmed.substring(6) : trimmed.substring(4)))
                   : trimmed);
 
           final inlineSpans = NoteHelper.parseInlineMarkdown(rawText);

@@ -39,7 +39,14 @@ class NoteHelper {
     final lines = trimmed.split('\n');
     for (final line in lines) {
       final t = line.trim();
-      if (t.startsWith('[ ] ') || t.startsWith('[x] ') || t.startsWith('- [ ] ') || t.startsWith('- [x] ')) {
+      if (t == '[ ]' ||
+          t == '[x]' ||
+          t == '- [ ]' ||
+          t == '- [x]' ||
+          t.startsWith('[ ] ') ||
+          t.startsWith('[x] ') ||
+          t.startsWith('- [ ] ') ||
+          t.startsWith('- [x] ')) {
         return true;
       }
     }
@@ -77,6 +84,12 @@ class NoteHelper {
       } else if (line.startsWith('# ')) {
         blockAttrs['header'] = 1;
         line = line.substring(2);
+      } else if (line == '[ ]' || line == '- [ ]') {
+        blockAttrs['list'] = 'unchecked';
+        line = '';
+      } else if (line == '[x]' || line == '- [x]') {
+        blockAttrs['list'] = 'checked';
+        line = '';
       } else if (line.startsWith('[ ] ') || line.startsWith('- [ ] ')) {
         blockAttrs['list'] = 'unchecked';
         line = line.startsWith('- [ ] ') ? line.substring(6) : line.substring(4);
@@ -449,7 +462,23 @@ class NoteHelper {
       }
     }
 
-    return content;
+    final lines = content.split('\n');
+    final buffer = StringBuffer();
+    for (final line in lines) {
+      var t = line.trim();
+      if (t == '[ ]' || t == '[x]' || t == '- [ ]' || t == '- [x]') {
+        continue;
+      }
+      if (t.startsWith('[ ] ') || t.startsWith('[x] ')) {
+        t = t.substring(4);
+      } else if (t.startsWith('- [ ] ') || t.startsWith('- [x] ')) {
+        t = t.substring(6);
+      }
+      if (t.isNotEmpty) {
+        buffer.writeln(t);
+      }
+    }
+    return buffer.toString().trim();
   }
 
   /// Calculates word count
