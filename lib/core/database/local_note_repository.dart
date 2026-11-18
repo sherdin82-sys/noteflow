@@ -3,14 +3,17 @@ import 'dart:convert';
 import 'dart:io';
 import '../../shared/models/note_entity.dart';
 import '../../shared/models/folder_entity.dart';
+import '../../shared/models/voice_recording_entity.dart';
 import 'note_repository.dart';
 
 class LocalNoteRepository implements NoteRepository {
   final List<NoteEntity> _notes = [];
   final List<FolderEntity> _folders = [];
+  final List<VoiceRecordingEntity> _voiceRecordings = [];
 
   final _notesStreamController = StreamController<List<NoteEntity>>.broadcast();
   final _foldersStreamController = StreamController<List<FolderEntity>>.broadcast();
+  final _recordingsStreamController = StreamController<List<VoiceRecordingEntity>>.broadcast();
 
   final bool _seedDemoData;
   final bool _enableDiskPersistence;
@@ -59,6 +62,7 @@ class LocalNoteRepository implements NoteRepository {
           }
           final rawFolders = data['folders'] as List<dynamic>? ?? [];
           final rawNotes = data['notes'] as List<dynamic>? ?? [];
+          final rawRecordings = data['voice_recordings'] as List<dynamic>? ?? [];
 
           _folders.clear();
           for (final f in rawFolders) {
@@ -70,9 +74,15 @@ class LocalNoteRepository implements NoteRepository {
             _notes.add(NoteEntity.fromMap(Map<String, dynamic>.from(n as Map)));
           }
 
+          _voiceRecordings.clear();
+          for (final r in rawRecordings) {
+            _voiceRecordings.add(VoiceRecordingEntity.fromMap(Map<String, dynamic>.from(r as Map)));
+          }
+
           _initialized = true;
           _emitNotes();
           _emitFolders();
+          _emitRecordings();
           return;
         }
       }
@@ -115,6 +125,7 @@ class LocalNoteRepository implements NoteRepository {
         'theme_mode': _themeMode,
         'folders': _folders.map((f) => f.toMap()).toList(),
         'notes': _notes.map((n) => n.toMap()).toList(),
+        'voice_recordings': _voiceRecordings.map((r) => r.toMap()).toList(),
       };
       await file.writeAsString(jsonEncode(payload), flush: true);
     } catch (_) {
@@ -160,6 +171,7 @@ class LocalNoteRepository implements NoteRepository {
             'Key features:\n'
             '• Pure offline persistence — zero cloud, zero tracking.\n'
             '• Rich-text editing with formatting & checklists.\n'
+            '• Voice Notes container with independent audio recordings.\n'
             '• Organize notes with custom folders & color tints.\n'
             '• Pin important notes to keep them accessible.\n'
             '• Instant search and smooth dark/light theme transitions.',
@@ -167,6 +179,7 @@ class LocalNoteRepository implements NoteRepository {
         isPinned: true,
         isArchived: false,
         isChecklist: false,
+        isVoiceNote: false,
         colorIndex: 1, // Soft emerald tint
         createdAt: now.subtract(const Duration(hours: 3)),
         updatedAt: now.subtract(const Duration(minutes: 10)),
@@ -185,6 +198,7 @@ class LocalNoteRepository implements NoteRepository {
         isPinned: true,
         isArchived: false,
         isChecklist: true,
+        isVoiceNote: false,
         colorIndex: 4, // Warm amber tint
         createdAt: now.subtract(const Duration(days: 1)),
         updatedAt: now.subtract(const Duration(hours: 1)),
@@ -201,30 +215,54 @@ class LocalNoteRepository implements NoteRepository {
         isPinned: false,
         isArchived: false,
         isChecklist: false,
+        isVoiceNote: false,
         colorIndex: 2, // Soft blue tint
         createdAt: now.subtract(const Duration(days: 2)),
         updatedAt: now.subtract(const Duration(hours: 4)),
       ),
       NoteEntity(
-        id: 'note-reading-list',
-        title: 'Book Recommendations',
-        content:
-            '• Designing Data-Intensive Applications by Martin Kleppmann\n'
-            '• Clean Architecture by Robert C. Martin\n'
-            '• The Design of Everyday Things by Don Norman\n'
-            '• Atomic Habits by James Clear',
-        folderId: 'folder-personal',
+        id: 'note-meeting-sync',
+        title: 'Product Sync & Design Audio Memos',
+        content: 'Meeting voice clips and action items',
+        folderId: 'folder-work',
         isPinned: false,
         isArchived: false,
         isChecklist: false,
+        isVoiceNote: true,
+        voiceMode: 'list',
         colorIndex: 3, // Lavender tint
-        createdAt: now.subtract(const Duration(days: 4)),
-        updatedAt: now.subtract(const Duration(days: 1)),
+        createdAt: now.subtract(const Duration(hours: 5)),
+        updatedAt: now.subtract(const Duration(minutes: 45)),
+      ),
+    ]);
+
+    // Seed Voice Recordings for note-meeting-sync
+    _voiceRecordings.addAll([
+      VoiceRecordingEntity(
+        id: 'rec-intro',
+        voiceNoteId: 'note-meeting-sync',
+        title: 'Sprint 24 Goals & Timeline',
+        audioPath: '',
+        durationMs: 42000, // 0:42
+        createdAt: now.subtract(const Duration(hours: 5)),
+        sortOrder: 0,
+        isCompleted: false,
+      ),
+      VoiceRecordingEntity(
+        id: 'rec-discussion',
+        voiceNoteId: 'note-meeting-sync',
+        title: 'Offline Voice Storage Architecture',
+        audioPath: '',
+        durationMs: 84000, // 1:24
+        createdAt: now.subtract(const Duration(hours: 4)),
+        sortOrder: 1,
+        isCompleted: true,
       ),
     ]);
 
     _emitNotes();
     _emitFolders();
+    _emitRecordings();
   }
 
   void _emitNotes() {
@@ -239,6 +277,12 @@ class LocalNoteRepository implements NoteRepository {
   void _emitFolders() {
     if (!_foldersStreamController.isClosed) {
       _foldersStreamController.add(List.unmodifiable(_folders));
+    }
+  }
+
+  void _emitRecordings() {
+    if (!_recordingsStreamController.isClosed) {
+      _recordingsStreamController.add(List.unmodifiable(_voiceRecordings));
     }
   }
 
@@ -291,6 +335,40 @@ class LocalNoteRepository implements NoteRepository {
         }
       } catch (_) {}
     }
+
+    // Delete all child voice recordings and their local audio files
+    final childRecordings = _voiceRecordings.where((r) => r.voiceNoteId == id).toList();
+    for (final rec in childRecordings) {
+      if (rec.audioPath.isNotEmpty) {
+        try {
+          final audioFile = File(rec.audioPath);
+          if (await audioFile.exists()) {
+            await audioFile.delete();
+          }
+        } catch (_) {}
+      }
+    }
+    _voiceRecordings.removeWhere((r) => r.voiceNoteId == id);
+    _emitRecordings();
+
+    // If child recordings were in a dedicated folder, clean it up
+    try {
+      if (childRecordings.isNotEmpty) {
+        for (final rec in childRecordings) {
+          if (rec.audioPath.isNotEmpty) {
+            final parentDir = File(rec.audioPath).parent;
+            if (await parentDir.exists()) {
+              final remaining = await parentDir.list().isEmpty;
+              if (remaining) {
+                await parentDir.delete(recursive: true);
+              }
+            }
+            break;
+          }
+        }
+      }
+    } catch (_) {}
+
     _notes.removeWhere((n) => n.id == id);
     _emitNotes();
     await _saveToDisk();
@@ -357,8 +435,84 @@ class LocalNoteRepository implements NoteRepository {
     await _saveToDisk();
   }
 
+  // Voice Recordings CRUD
+  @override
+  Stream<List<VoiceRecordingEntity>> watchVoiceRecordings(String voiceNoteId) async* {
+    List<VoiceRecordingEntity> getSorted() {
+      final list = _voiceRecordings.where((r) => r.voiceNoteId == voiceNoteId).toList()
+        ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+      return list;
+    }
+
+    yield getSorted();
+    yield* _recordingsStreamController.stream.map((_) => getSorted());
+  }
+
+  @override
+  Future<List<VoiceRecordingEntity>> getVoiceRecordings(String voiceNoteId) async {
+    final list = _voiceRecordings.where((r) => r.voiceNoteId == voiceNoteId).toList()
+      ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+    return list;
+  }
+
+  @override
+  Future<void> saveVoiceRecording(VoiceRecordingEntity recording) async {
+    final index = _voiceRecordings.indexWhere((r) => r.id == recording.id);
+    if (index >= 0) {
+      _voiceRecordings[index] = recording;
+    } else {
+      _voiceRecordings.add(recording);
+    }
+    _emitRecordings();
+    await _saveToDisk();
+  }
+
+  @override
+  Future<void> deleteVoiceRecording(String recordingId) async {
+    final index = _voiceRecordings.indexWhere((r) => r.id == recordingId);
+    if (index >= 0) {
+      final rec = _voiceRecordings[index];
+      if (rec.audioPath.isNotEmpty) {
+        try {
+          final file = File(rec.audioPath);
+          if (await file.exists()) {
+            await file.delete();
+          }
+        } catch (_) {}
+      }
+      _voiceRecordings.removeAt(index);
+      _emitRecordings();
+      await _saveToDisk();
+    }
+  }
+
+  @override
+  Future<void> reorderVoiceRecordings(String voiceNoteId, List<String> orderedIds) async {
+    for (int i = 0; i < orderedIds.length; i++) {
+      final id = orderedIds[i];
+      final index = _voiceRecordings.indexWhere((r) => r.id == id && r.voiceNoteId == voiceNoteId);
+      if (index >= 0) {
+        _voiceRecordings[index] = _voiceRecordings[index].copyWith(sortOrder: i);
+      }
+    }
+    _emitRecordings();
+    await _saveToDisk();
+  }
+
+  @override
+  Future<void> toggleVoiceRecordingCompletion(String recordingId) async {
+    final index = _voiceRecordings.indexWhere((r) => r.id == recordingId);
+    if (index >= 0) {
+      final current = _voiceRecordings[index];
+      _voiceRecordings[index] = current.copyWith(isCompleted: !current.isCompleted);
+      _emitRecordings();
+      await _saveToDisk();
+    }
+  }
+
   void dispose() {
     _notesStreamController.close();
     _foldersStreamController.close();
+    _recordingsStreamController.close();
   }
 }

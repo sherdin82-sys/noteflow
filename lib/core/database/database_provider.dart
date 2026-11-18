@@ -3,6 +3,7 @@ import 'note_repository.dart';
 import 'local_note_repository.dart';
 import '../../shared/models/note_entity.dart';
 import '../../shared/models/folder_entity.dart';
+import '../../shared/models/voice_recording_entity.dart';
 
 /// Provider for the singleton NoteRepository
 final noteRepositoryProvider = Provider<NoteRepository>((ref) {
@@ -29,4 +30,10 @@ final archivedNotesStreamProvider = StreamProvider<List<NoteEntity>>((ref) {
 final foldersStreamProvider = StreamProvider<List<FolderEntity>>((ref) {
   final repo = ref.watch(noteRepositoryProvider);
   return repo.watchFolders();
+});
+
+/// Reactive stream of voice recordings for a specific voice note
+final voiceRecordingsStreamProvider = StreamProvider.family<List<VoiceRecordingEntity>, String>((ref, voiceNoteId) {
+  final repo = ref.watch(noteRepositoryProvider);
+  return repo.watchVoiceRecordings(voiceNoteId);
 });

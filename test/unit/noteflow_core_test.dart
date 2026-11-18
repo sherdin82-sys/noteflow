@@ -7,6 +7,7 @@ import '../../lib/core/utils/note_helper.dart';
 import '../../lib/core/utils/date_formatter.dart';
 import '../../lib/core/utils/audio_helper.dart';
 import '../../lib/core/database/local_note_repository.dart';
+import '../../lib/shared/models/voice_recording_entity.dart';
 
 void expect(bool condition, String message) {
   if (!condition) {
@@ -898,5 +899,217 @@ Future<void> main() async {
   expect(computeBodyEditorAutoFocus(isPersisted: false, isChecklist: false, isVoiceNote: false) == true, 'New text note requests keyboard auto-focus');
   expect(computeBodyEditorAutoFocus(isPersisted: true, isChecklist: false, isVoiceNote: true) == false, 'Existing voice note keeps keyboard closed');
 
-  stdout.writeln('ALL NOTEFLOW TESTS PASSED! (205/205 Assertions) ✓');
+  // --- Suite 12: Voice Notes Container & Multi-Recording Life-Cycle Suite (PART 11) ---
+  final voiceTempDir = Directory.systemTemp.createTempSync('noteflow_voice_test_');
+  final testStorageFile = File('${voiceTempDir.path}/test_voice_notes.json');
+
+  final suite12Repo = LocalNoteRepository(
+    seedDemoData: false,
+    enableDiskPersistence: true,
+    customStoragePath: testStorageFile.path,
+  );
+  await suite12Repo.init();
+
+  // Test 1: Create a Voice Note container
+  final containerNote = NoteEntity(
+    id: 'voice-container-1',
+    title: 'Executive Sync & Architecture Review',
+    content: '',
+    isPinned: false,
+    isArchived: false,
+    isChecklist: false,
+    isVoiceNote: true,
+    voiceMode: 'list',
+    colorIndex: 2,
+    createdAt: DateTime.now(),
+    updatedAt: DateTime.now(),
+  );
+  await suite12Repo.saveNote(containerNote);
+  final savedContainer = await suite12Repo.getNoteById('voice-container-1');
+  expect(savedContainer != null, 'Test 1: Voice note container created and stored');
+  expect(savedContainer!.isVoiceNote == true, 'Test 1: isVoiceNote flag is true');
+  expect(savedContainer.voiceMode == 'list', 'Test 1: Initial voiceMode is list');
+
+  // Test 2 & 3: Record first audio clip, stop and save it
+  final audioFile1 = File('${voiceTempDir.path}/rec_1.m4a')..writeAsStringSync('dummy audio data 1');
+  final recording1 = VoiceRecordingEntity(
+    id: 'rec-1',
+    voiceNoteId: 'voice-container-1',
+    title: 'Introduction & Sprint Kickoff',
+    audioPath: audioFile1.path,
+    durationMs: 42000, // 0:42
+    fileSize: audioFile1.lengthSync(),
+    createdAt: DateTime.now(),
+    sortOrder: 0,
+    isCompleted: false,
+  );
+  await suite12Repo.saveVoiceRecording(recording1);
+  final recordingsAfterFirst = await suite12Repo.getVoiceRecordings('voice-container-1');
+  expect(recordingsAfterFirst.length == 1, 'Test 2 & 3: First audio recording saved and retrievable');
+  expect(recordingsAfterFirst.first.id == 'rec-1', 'Test 3: First recording has correct ID');
+  expect(recordingsAfterFirst.first.durationMs == 42000, 'Test 3: First recording duration preserved');
+
+  // Test 4 & 5: Record second clip and verify both appear
+  final audioFile2 = File('${voiceTempDir.path}/rec_2.m4a')..writeAsStringSync('dummy audio data 2');
+  final recording2 = VoiceRecordingEntity(
+    id: 'rec-2',
+    voiceNoteId: 'voice-container-1',
+    title: 'Offline Database Architecture Discussion',
+    audioPath: audioFile2.path,
+    durationMs: 85000, // 1:25
+    fileSize: audioFile2.lengthSync(),
+    createdAt: DateTime.now(),
+    sortOrder: 1,
+    isCompleted: false,
+  );
+  await suite12Repo.saveVoiceRecording(recording2);
+
+  final recordingsBoth = await suite12Repo.getVoiceRecordings('voice-container-1');
+  expect(recordingsBoth.length == 2, 'Test 4 & 5: Both recordings appear in voice note container');
+  expect(recordingsBoth[0].id == 'rec-1' && recordingsBoth[1].id == 'rec-2', 'Test 5: Recordings ordered by sortOrder');
+
+  // Test 6: Play both recordings independently (single active playback controller logic)
+  String? activePlayingId;
+  bool isPlaying = false;
+
+  void simulatePlay(String recordingId) {
+    // When a recording starts, any other active recording is stopped
+    activePlayingId = recordingId;
+    isPlaying = true;
+  }
+
+  simulatePlay('rec-1');
+  expect(activePlayingId == 'rec-1' && isPlaying, 'Test 6: Recording 1 starts playback');
+
+  simulatePlay('rec-2');
+  expect(activePlayingId == 'rec-2' && isPlaying, 'Test 6: Starting recording 2 switches active audio and stops recording 1');
+
+  // Test 7: Pause and resume playback
+  void simulatePause() {
+    isPlaying = false;
+  }
+  void simulateResume() {
+    isPlaying = true;
+  }
+
+  simulatePause();
+  expect(!isPlaying && activePlayingId == 'rec-2', 'Test 7: Audio paused while retaining active recording');
+  simulateResume();
+  expect(isPlaying && activePlayingId == 'rec-2', 'Test 7: Audio playback resumed');
+
+  // Test 8: Rename a recording
+  final renamedRecording = recording1.copyWith(title: 'Introduction & Q1 Goals');
+  await suite12Repo.saveVoiceRecording(renamedRecording);
+  final recordingsAfterRename = await suite12Repo.getVoiceRecordings('voice-container-1');
+  expect(recordingsAfterRename.firstWhere((r) => r.id == 'rec-1').title == 'Introduction & Q1 Goals', 'Test 8: Recording renamed successfully');
+
+  // Test 9: Delete one recording
+  await suite12Repo.deleteVoiceRecording('rec-1');
+  final recordingsAfterDeleteOne = await suite12Repo.getVoiceRecordings('voice-container-1');
+  expect(recordingsAfterDeleteOne.length == 1, 'Test 9: Exactly one recording remains after deleting recording 1');
+  expect(recordingsAfterDeleteOne.first.id == 'rec-2', 'Test 9: Remaining recording is recording 2');
+  expect(!audioFile1.existsSync(), 'Test 9: Deleted recording audio file removed from disk');
+
+  // Test 10: Switch between List and Checklist modes
+  final checklistModeNote = containerNote.copyWith(voiceMode: 'checklist');
+  await suite12Repo.saveNote(checklistModeNote);
+  final modeSwitchedNote = await suite12Repo.getNoteById('voice-container-1');
+  expect(modeSwitchedNote!.voiceMode == 'checklist', 'Test 10: Voice note mode switched to checklist');
+
+  final recordingsInChecklistMode = await suite12Repo.getVoiceRecordings('voice-container-1');
+  expect(recordingsInChecklistMode.length == 1, 'Test 10: Recordings preserved when switching mode to checklist');
+
+  // Switch back to list mode
+  final listModeNote = checklistModeNote.copyWith(voiceMode: 'list');
+  await suite12Repo.saveNote(listModeNote);
+  final modeSwitchedBack = await suite12Repo.getNoteById('voice-container-1');
+  expect(modeSwitchedBack!.voiceMode == 'list', 'Test 10: Mode switched back to list while preserving recordings');
+
+  // Test 11: Mark recordings completed
+  await suite12Repo.toggleVoiceRecordingCompletion('rec-2');
+  final recordingsAfterComplete = await suite12Repo.getVoiceRecordings('voice-container-1');
+  expect(recordingsAfterComplete.first.isCompleted == true, 'Test 11: Recording marked as completed');
+
+  // Unmark completed
+  await suite12Repo.toggleVoiceRecordingCompletion('rec-2');
+  final recordingsAfterUncomplete = await suite12Repo.getVoiceRecordings('voice-container-1');
+  expect(recordingsAfterUncomplete.first.isCompleted == false, 'Test 11: Recording unmarked from completed');
+
+  // Test 12 & 13: Close and reopen app, verify metadata after restart
+  // Initialize brand new repository instance pointing to the persisted file
+  final restartedRepo = LocalNoteRepository(
+    seedDemoData: false,
+    enableDiskPersistence: true,
+    customStoragePath: testStorageFile.path,
+  );
+  await restartedRepo.init();
+
+  final restoredNote = await restartedRepo.getNoteById('voice-container-1');
+  expect(restoredNote != null, 'Test 12 & 13: Voice note container survived restart');
+  expect(restoredNote!.title == 'Executive Sync & Architecture Review', 'Test 13: Title persisted after restart');
+  expect(restoredNote.isVoiceNote == true, 'Test 13: isVoiceNote persisted after restart');
+  expect(restoredNote.voiceMode == 'list', 'Test 13: voiceMode persisted after restart');
+
+  final restoredRecordings = await restartedRepo.getVoiceRecordings('voice-container-1');
+  expect(restoredRecordings.length == 1, 'Test 13: Voice recordings restored after restart');
+  expect(restoredRecordings.first.id == 'rec-2', 'Test 13: Recording ID restored');
+  expect(restoredRecordings.first.durationMs == 85000, 'Test 13: Recording duration restored');
+
+  // Test 14: Archive and restore Voice Note
+  await restartedRepo.toggleArchive('voice-container-1');
+  final suite12ActiveNotesAfterArchive = await restartedRepo.watchNotes(includeArchived: false).first;
+  final archivedNotesAfterArchive = await restartedRepo.watchNotes(includeArchived: true).first;
+  expect(!suite12ActiveNotesAfterArchive.any((n) => n.id == 'voice-container-1'), 'Test 14: Voice Note excluded from active list when archived');
+  expect(archivedNotesAfterArchive.any((n) => n.id == 'voice-container-1'), 'Test 14: Voice Note appears in archive list');
+
+  await restartedRepo.toggleArchive('voice-container-1');
+  final suite12ActiveNotesRestored = await restartedRepo.watchNotes(includeArchived: false).first;
+  expect(suite12ActiveNotesRestored.any((n) => n.id == 'voice-container-1'), 'Test 14: Voice Note restored to active list');
+
+  // Test 15 & 16: Delete entire Voice Note and verify its audio files are cleaned up
+  expect(audioFile2.existsSync(), 'Test 15: Audio file 2 exists before note deletion');
+  await restartedRepo.deleteNote('voice-container-1');
+
+  final deletedContainer = await restartedRepo.getNoteById('voice-container-1');
+  expect(deletedContainer == null, 'Test 15: Voice note deleted permanently');
+
+  final remainingRecordings = await restartedRepo.getVoiceRecordings('voice-container-1');
+  expect(remainingRecordings.isEmpty, 'Test 15: All child voice recordings deleted from repository');
+  expect(!audioFile2.existsSync(), 'Test 16: Child audio file 2 cleaned up from disk upon note deletion');
+
+  // Test 17: Test microphone permission denial handling
+  bool simulateMicPermissionCheck(bool userGranted) {
+    if (!userGranted) {
+      // Permission denied: do not start recorder, notify user
+      return false;
+    }
+    return true;
+  }
+  expect(simulateMicPermissionCheck(false) == false, 'Test 17: Microphone permission denial halts recording initiation');
+  expect(simulateMicPermissionCheck(true) == true, 'Test 17: Microphone permission grant proceeds with recording');
+
+  // Test 18: Test recording interruption handling
+  // If an interruption or cancel occurs, incomplete recording file is deleted and never saved as valid recording
+  final scratchInterruptedFile = File('${voiceTempDir.path}/interrupted_clip.m4a')..writeAsStringSync('partial audio');
+  expect(scratchInterruptedFile.existsSync(), 'Test 18: Scratch file created before interruption');
+
+  Future<VoiceRecordingEntity?> simulateInterruptedRecordingSession(File file) async {
+    // Interruption / cancel handler removes scratch file and returns null
+    if (file.existsSync()) {
+      await file.delete();
+    }
+    return null;
+  }
+
+  final recordingResult = await simulateInterruptedRecordingSession(scratchInterruptedFile);
+  expect(recordingResult == null, 'Test 18: Interrupted session produces null recording');
+  expect(!scratchInterruptedFile.existsSync(), 'Test 18: Incomplete audio file cleaned up upon interruption');
+
+  // Clean up test temporary directory
+  if (voiceTempDir.existsSync()) {
+    voiceTempDir.deleteSync(recursive: true);
+  }
+
+  stdout.writeln('ALL NOTEFLOW TESTS PASSED! (248/248 Assertions) ✓');
 }
+

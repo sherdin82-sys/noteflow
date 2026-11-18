@@ -6,6 +6,8 @@ class NoteEntity {
   final bool isPinned;
   final bool isArchived;
   final bool isChecklist;
+  final bool isVoiceNote;
+  final String voiceMode; // 'list' or 'checklist'
   final int colorIndex;
   final String? audioPath;
   final int? audioDurationMs;
@@ -20,6 +22,8 @@ class NoteEntity {
     this.isPinned = false,
     this.isArchived = false,
     this.isChecklist = false,
+    this.isVoiceNote = false,
+    this.voiceMode = 'list',
     this.colorIndex = 0,
     this.audioPath,
     this.audioDurationMs,
@@ -27,7 +31,7 @@ class NoteEntity {
     required this.updatedAt,
   });
 
-  bool get hasAudio => audioPath != null && audioPath!.trim().isNotEmpty;
+  bool get hasAudio => isVoiceNote || (audioPath != null && audioPath!.trim().isNotEmpty);
 
   NoteEntity copyWith({
     String? id,
@@ -38,6 +42,8 @@ class NoteEntity {
     bool? isPinned,
     bool? isArchived,
     bool? isChecklist,
+    bool? isVoiceNote,
+    String? voiceMode,
     int? colorIndex,
     String? audioPath,
     bool clearAudio = false,
@@ -53,6 +59,8 @@ class NoteEntity {
       isPinned: isPinned ?? this.isPinned,
       isArchived: isArchived ?? this.isArchived,
       isChecklist: isChecklist ?? this.isChecklist,
+      isVoiceNote: isVoiceNote ?? this.isVoiceNote,
+      voiceMode: voiceMode ?? this.voiceMode,
       colorIndex: colorIndex ?? this.colorIndex,
       audioPath: clearAudio ? null : (audioPath ?? this.audioPath),
       audioDurationMs: clearAudio ? null : (audioDurationMs ?? this.audioDurationMs),
@@ -70,6 +78,8 @@ class NoteEntity {
       'is_pinned': isPinned ? 1 : 0,
       'is_archived': isArchived ? 1 : 0,
       'is_checklist': isChecklist ? 1 : 0,
+      'is_voice_note': isVoiceNote ? 1 : 0,
+      'voice_mode': voiceMode,
       'color_index': colorIndex,
       'audio_path': audioPath,
       'audio_duration_ms': audioDurationMs,
@@ -87,6 +97,8 @@ class NoteEntity {
       isPinned: (map['is_pinned'] as int? ?? 0) == 1,
       isArchived: (map['is_archived'] as int? ?? 0) == 1,
       isChecklist: (map['is_checklist'] as int? ?? 0) == 1,
+      isVoiceNote: (map['is_voice_note'] as int? ?? 0) == 1,
+      voiceMode: map['voice_mode'] as String? ?? 'list',
       colorIndex: map['color_index'] as int? ?? 0,
       audioPath: map['audio_path'] as String?,
       audioDurationMs: map['audio_duration_ms'] as int?,

@@ -14,6 +14,7 @@ import 'widgets/home_header.dart';
 import 'widgets/folder_filter_bar.dart';
 import 'widgets/note_card.dart';
 import '../../editor/presentation/note_editor_screen.dart';
+import '../../voice_notes/presentation/voice_note_editor_screen.dart';
 import '../../archive/presentation/archive_screen.dart';
 import '../../folders/presentation/folders_screen.dart';
 
@@ -41,6 +42,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     bool isVoiceNote = false,
   }) {
     final filterState = ref.read(noteFilterProvider);
+    final isVoice = isVoiceNote || (note?.isVoiceNote ?? false);
+
+    if (isVoice) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => VoiceNoteEditorScreen(
+            noteId: note?.id ?? noteId,
+            initialNote: note,
+            initialFolderId: note?.folderId ?? filterState.selectedFolderId,
+          ),
+        ),
+      );
+      return;
+    }
+
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -49,7 +66,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           initialNote: note,
           initialFolderId: note?.folderId ?? filterState.selectedFolderId,
           isChecklist: note?.isChecklist ?? isChecklist,
-          isVoiceNote: isVoiceNote || (note?.hasAudio ?? false),
+          isVoiceNote: note?.hasAudio ?? false,
         ),
       ),
     );

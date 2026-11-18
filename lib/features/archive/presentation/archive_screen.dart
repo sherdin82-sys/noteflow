@@ -8,6 +8,7 @@ import '../../../shared/models/note_entity.dart';
 import '../../../shared/widgets/empty_state_view.dart';
 import '../../home/presentation/widgets/note_card.dart';
 import '../../editor/presentation/note_editor_screen.dart';
+import '../../voice_notes/presentation/voice_note_editor_screen.dart';
 
 class ArchiveScreen extends ConsumerStatefulWidget {
   const ArchiveScreen({super.key});
@@ -27,6 +28,20 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
   }
 
   void _navigateToEditor(NoteEntity note) {
+    if (note.isVoiceNote) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => VoiceNoteEditorScreen(
+            noteId: note.id,
+            initialNote: note,
+            initialFolderId: note.folderId,
+          ),
+        ),
+      );
+      return;
+    }
+
     Navigator.push(
       context,
       MaterialPageRoute(

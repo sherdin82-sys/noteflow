@@ -1,7 +1,7 @@
 // Database table schema definitions for Drift and SQLite
 //
 // NoteFlow uses Drift for type-safe database access and reactive SQL streams.
-// Both table schemas are declared here according to Drift specifications.
+// Table schemas are declared here according to Drift specifications.
 
 class NotesTableDefinition {
   static const String tableName = 'notes';
@@ -13,6 +13,8 @@ class NotesTableDefinition {
   static const String colIsPinned = 'is_pinned';
   static const String colIsArchived = 'is_archived';
   static const String colIsChecklist = 'is_checklist';
+  static const String colIsVoiceNote = 'is_voice_note';
+  static const String colVoiceMode = 'voice_mode';
   static const String colColorIndex = 'color_index';
   static const String colAudioPath = 'audio_path';
   static const String colAudioDurationMs = 'audio_duration_ms';
@@ -28,6 +30,8 @@ class NotesTableDefinition {
       $colIsPinned INTEGER NOT NULL DEFAULT 0,
       $colIsArchived INTEGER NOT NULL DEFAULT 0,
       $colIsChecklist INTEGER NOT NULL DEFAULT 0,
+      $colIsVoiceNote INTEGER NOT NULL DEFAULT 0,
+      $colVoiceMode TEXT NOT NULL DEFAULT 'list',
       $colColorIndex INTEGER NOT NULL DEFAULT 0,
       $colAudioPath TEXT,
       $colAudioDurationMs INTEGER,
@@ -54,5 +58,37 @@ class FoldersTableDefinition {
       $colIconName TEXT NOT NULL DEFAULT 'folder',
       $colCreatedAt TEXT NOT NULL
     );
+  ''';
+}
+
+class VoiceRecordingsTableDefinition {
+  static const String tableName = 'voice_recordings';
+
+  static const String colId = 'id';
+  static const String colVoiceNoteId = 'voice_note_id';
+  static const String colTitle = 'title';
+  static const String colAudioPath = 'audio_path';
+  static const String colDurationMs = 'duration_ms';
+  static const String colFileSize = 'file_size';
+  static const String colCreatedAt = 'created_at';
+  static const String colSortOrder = 'sort_order';
+  static const String colIsCompleted = 'is_completed';
+  static const String colFormat = 'format';
+
+  static const String createTableSql = '''
+    CREATE TABLE IF NOT EXISTS $tableName (
+      $colId TEXT PRIMARY KEY NOT NULL,
+      $colVoiceNoteId TEXT NOT NULL,
+      $colTitle TEXT NOT NULL,
+      $colAudioPath TEXT NOT NULL,
+      $colDurationMs INTEGER NOT NULL,
+      $colFileSize INTEGER NOT NULL DEFAULT 0,
+      $colCreatedAt TEXT NOT NULL,
+      $colSortOrder INTEGER NOT NULL DEFAULT 0,
+      $colIsCompleted INTEGER NOT NULL DEFAULT 0,
+      $colFormat TEXT NOT NULL DEFAULT 'm4a',
+      FOREIGN KEY ($colVoiceNoteId) REFERENCES ${NotesTableDefinition.tableName}(${NotesTableDefinition.colId}) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_voice_recordings_note_id ON $tableName($colVoiceNoteId);
   ''';
 }

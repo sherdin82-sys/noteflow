@@ -6,7 +6,6 @@ import 'package:record/record.dart';
 import 'package:path_provider/path_provider.dart';
 import '../../../../core/constants/app_constants.dart';
 import '../../../../core/theme/app_colors.dart';
-import '../../../../core/theme/app_typography.dart';
 import '../../../../core/utils/audio_helper.dart';
 
 class VoiceNoteRecordedData {

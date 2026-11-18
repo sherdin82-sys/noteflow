@@ -1,5 +1,6 @@
 import '../../shared/models/note_entity.dart';
 import '../../shared/models/folder_entity.dart';
+import '../../shared/models/voice_recording_entity.dart';
 
 abstract class NoteRepository {
   /// Stream of all active or archived notes
@@ -28,4 +29,22 @@ abstract class NoteRepository {
 
   /// Delete folder
   Future<void> deleteFolder(String id);
+
+  /// Stream of voice recordings for a specific voice note
+  Stream<List<VoiceRecordingEntity>> watchVoiceRecordings(String voiceNoteId);
+
+  /// Get list of voice recordings for a specific voice note
+  Future<List<VoiceRecordingEntity>> getVoiceRecordings(String voiceNoteId);
+
+  /// Create or update a voice recording
+  Future<void> saveVoiceRecording(VoiceRecordingEntity recording);
+
+  /// Delete a single voice recording and its local audio file
+  Future<void> deleteVoiceRecording(String recordingId);
+
+  /// Reorder voice recordings by updating their sort orders
+  Future<void> reorderVoiceRecordings(String voiceNoteId, List<String> orderedIds);
+
+  /// Toggle the completion state of a voice recording (Checklist mode)
+  Future<void> toggleVoiceRecordingCompletion(String recordingId);
 }
