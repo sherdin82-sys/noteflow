@@ -606,6 +606,9 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                   if (_currentNote.isChecklist)
                     ChecklistView(
                       rawContent: NoteHelper.formatForEditor(_currentNote.content),
+                      autoFocus: !_isNotePersisted &&
+                          (_currentNote.title.isEmpty &&
+                              NoteHelper.extractPlainText(_currentNote.content).isEmpty),
                       onContentChanged: (newText) {
                         final deltaJson = NoteHelper.markdownToDeltaJson(newText);
                         _currentNote = _currentNote.copyWith(content: deltaJson);

@@ -31,11 +31,13 @@ class ChecklistItem {
 class ChecklistView extends StatefulWidget {
   final String rawContent;
   final ValueChanged<String> onContentChanged;
+  final bool autoFocus;
 
   const ChecklistView({
     super.key,
     required this.rawContent,
     required this.onContentChanged,
+    this.autoFocus = false,
   });
 
   @override
@@ -51,6 +53,14 @@ class _ChecklistViewState extends State<ChecklistView> {
   void initState() {
     super.initState();
     _parseRawContent(widget.rawContent);
+    if (widget.autoFocus) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _items.isNotEmpty) {
+          _items.first.focusNode.requestFocus();
+          _items.first.controller.selection = const TextSelection.collapsed(offset: 0);
+        }
+      });
+    }
   }
 
   @override
@@ -122,6 +132,17 @@ class _ChecklistViewState extends State<ChecklistView> {
     };
   }
 
+  String _sanitizeText(String raw) {
+    var t = raw;
+    while (t.startsWith('[ ] ') || t.startsWith('[x] ') || t.startsWith('- [ ] ') || t.startsWith('- [x] ')) {
+      t = t.startsWith('- [ ] ') || t.startsWith('- [x] ') ? t.substring(6) : t.substring(4);
+    }
+    if (t == '[ ]' || t == '[x]' || t == '- [ ]' || t == '- [x]') {
+      t = '';
+    }
+    return t;
+  }
+
   void _parseRawContent(String content) {
     for (final item in _items) {
       item.dispose();
@@ -141,16 +162,16 @@ class _ChecklistViewState extends State<ChecklistView> {
         _items.add(_createItem(isCompleted: false, text: ''));
       } else if (trimmed.startsWith('[x] ') || trimmed.startsWith('- [x] ')) {
         final text = trimmed.startsWith('- [x] ') ? trimmed.substring(6) : trimmed.substring(4);
-        _items.add(_createItem(isCompleted: true, text: text));
+        _items.add(_createItem(isCompleted: true, text: _sanitizeText(text)));
       } else if (trimmed.startsWith('[ ] ') || trimmed.startsWith('- [ ] ')) {
         final text = trimmed.startsWith('- [ ] ') ? trimmed.substring(6) : trimmed.substring(4);
-        _items.add(_createItem(isCompleted: false, text: text));
+        _items.add(_createItem(isCompleted: false, text: _sanitizeText(text)));
       } else if (trimmed.startsWith('• ') || trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
-        _items.add(_createItem(isCompleted: false, text: trimmed.substring(2)));
+        _items.add(_createItem(isCompleted: false, text: _sanitizeText(trimmed.substring(2))));
       } else if (RegExp(r'^\d+\.\s').hasMatch(trimmed)) {
-        _items.add(_createItem(isCompleted: false, text: trimmed.replaceFirst(RegExp(r'^\d+\.\s'), '')));
+        _items.add(_createItem(isCompleted: false, text: _sanitizeText(trimmed.replaceFirst(RegExp(r'^\d+\.\s'), ''))));
       } else {
-        _items.add(_createItem(isCompleted: false, text: trimmed));
+        _items.add(_createItem(isCompleted: false, text: _sanitizeText(trimmed)));
       }
     }
 

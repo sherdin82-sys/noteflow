@@ -671,5 +671,36 @@ Future<void> main() async {
   final secondFormatted = NoteHelper.formatForEditor(secondDelta);
   expect(secondFormatted == formattedForEditor, 'Full round-trip serialization is 100% stable without prefix accumulation');
 
-  stdout.writeln('ALL NOTEFLOW TESTS PASSED! (144/144 Assertions) ✓');
+  // Test 5: Legacy Duplicate Checklist Marker Sanitization & Legitimate Bracket Preservation
+  String sanitizeItemText(String raw) {
+    var t = raw;
+    while (t.startsWith('[ ] ') || t.startsWith('[x] ') || t.startsWith('- [ ] ') || t.startsWith('- [x] ')) {
+      t = t.startsWith('- [ ] ') || t.startsWith('- [x] ') ? t.substring(6) : t.substring(4);
+    }
+    if (t == '[ ]' || t == '[x]' || t == '- [ ]' || t == '- [x]') {
+      t = '';
+    }
+    return t;
+  }
+
+  expect(sanitizeItemText('[ ] [ ]') == '', 'Sanitizes double empty bracket marker to empty string');
+  expect(sanitizeItemText('[ ] [ ] [ ]') == '', 'Sanitizes triple empty bracket marker to empty string');
+  expect(sanitizeItemText('[ ] [ ] Buy groceries') == 'Buy groceries', 'Sanitizes duplicate brackets before task text');
+  expect(sanitizeItemText('[x] [x] Completed task') == 'Completed task', 'Sanitizes duplicate completed brackets');
+  expect(sanitizeItemText('[Work] Call client') == '[Work] Call client', 'Preserves legitimate [Work] bracket tag');
+  expect(sanitizeItemText('Priority [HIGH] task') == 'Priority [HIGH] task', 'Preserves legitimate [HIGH] bracket tag');
+  expect(sanitizeItemText('Math formula: x[i] = y[i]') == 'Math formula: x[i] = y[i]', 'Preserves legitimate code/math bracket indexing');
+
+  // Test 6: AutoFocus Rule Verification for New vs Existing Checklists
+  bool computeChecklistAutoFocus({required bool isPersisted, required String title, required String content}) {
+    return !isPersisted && (title.isEmpty && NoteHelper.extractPlainText(content).isEmpty);
+  }
+
+  expect(computeChecklistAutoFocus(isPersisted: false, title: '', content: '[{"insert":"\\n","attributes":{"list":"unchecked"}}]'), 'New blank checklist requests autoFocus');
+  expect(computeChecklistAutoFocus(isPersisted: false, title: '', content: '[ ]'), 'New markdown blank checklist requests autoFocus');
+  expect(!computeChecklistAutoFocus(isPersisted: true, title: '', content: '[{"insert":"\\n"}]'), 'Existing persisted checklist does NOT request autoFocus');
+  expect(!computeChecklistAutoFocus(isPersisted: true, title: 'My Tasks', content: '[{"insert":"Task 1\\n"}]'), 'Existing populated checklist does NOT request autoFocus');
+  expect(!computeChecklistAutoFocus(isPersisted: false, title: 'Pre-filled Title', content: ''), 'New note with existing title does NOT autoFocus checklist');
+
+  stdout.writeln('ALL NOTEFLOW TESTS PASSED! (156/156 Assertions) ✓');
 }
