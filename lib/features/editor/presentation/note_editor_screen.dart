@@ -37,6 +37,7 @@ class NoteEditorScreen extends ConsumerStatefulWidget {
 
 class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
   late final TextEditingController _titleController;
+  final FocusNode _titleFocusNode = FocusNode();
   late QuillController _quillController;
   final FocusNode _editorFocusNode = FocusNode();
   final ScrollController _editorScrollController = ScrollController();
@@ -72,6 +73,15 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
     }
 
     _titleController = TextEditingController(text: _isLoading ? '' : _currentNote.title);
+
+    // Auto-focus Title for new rich text notes to immediately open soft keyboard
+    if (!_isNotePersisted && !widget.isChecklist) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _titleFocusNode.requestFocus();
+        }
+      });
+    }
   }
 
   void _initQuillController(String rawContent) {
@@ -152,6 +162,7 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
     }
     _quillController.removeListener(_onQuillChanged);
     _quillController.dispose();
+    _titleFocusNode.dispose();
     _titleController.dispose();
     _editorFocusNode.dispose();
     _editorScrollController.dispose();
@@ -585,6 +596,13 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                   // Title Text Field
                   TextField(
                     controller: _titleController,
+                    focusNode: _titleFocusNode,
+                    textInputAction: TextInputAction.next,
+                    onSubmitted: (_) {
+                      if (!_currentNote.isChecklist) {
+                        _editorFocusNode.requestFocus();
+                      }
+                    },
                     style: AppTypography.displayMedium(primaryTextColor),
                     decoration: InputDecoration(
                       hintText: 'Title',

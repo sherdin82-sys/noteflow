@@ -12,8 +12,8 @@ class NoteFilterNotifier extends StateNotifier<NoteFilterState> {
   }
 
   void setSelectedFolder(String? folderId) {
-    if (state.selectedFolderId == folderId) {
-      // Toggle off
+    if (folderId == null || state.selectedFolderId == folderId) {
+      // Toggle off or clear folder filter
       state = state.copyWith(clearFolder: true);
     } else {
       state = state.copyWith(selectedFolderId: folderId);
@@ -50,11 +50,19 @@ class HomeNotesData {
 final homeNotesProvider = Provider<AsyncValue<HomeNotesData>>((ref) {
   final notesAsync = ref.watch(activeNotesStreamProvider);
   final filter = ref.watch(noteFilterProvider);
+  final foldersAsync = ref.watch(foldersStreamProvider);
 
   return notesAsync.whenData((notes) {
+    // Validate selectedFolderId exists in active folders
+    final validFolders = foldersAsync.value ?? [];
+    final activeFolderId = (filter.selectedFolderId != null &&
+            validFolders.any((f) => f.id == filter.selectedFolderId))
+        ? filter.selectedFolderId
+        : null;
+
     // 1. Filter by folder
     var filtered = notes.where((note) {
-      if (filter.selectedFolderId != null && note.folderId != filter.selectedFolderId) {
+      if (activeFolderId != null && note.folderId != activeFolderId) {
         return false;
       }
       return true;
