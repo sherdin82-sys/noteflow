@@ -4,7 +4,7 @@ import '../../../../shared/models/reminder_entity.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_typography.dart';
 import '../../../../core/constants/app_constants.dart';
-import '../providers/reminder_providers.dart';
+import '../../providers/reminder_providers.dart';
 import 'reminder_bottom_sheet.dart';
 
 class ReminderCard extends ConsumerWidget {

@@ -4,8 +4,8 @@ import '../../../../shared/models/reminder_entity.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_typography.dart';
 import '../../../../core/constants/app_constants.dart';
-import '../services/reminder_native_bridge.dart';
-import '../providers/reminder_providers.dart';
+import '../../services/reminder_native_bridge.dart';
+import '../../providers/reminder_providers.dart';
 
 class ReminderBottomSheet extends StatefulWidget {
   final String noteId;
@@ -214,7 +214,7 @@ class _ReminderBottomSheetState extends State<ReminderBottomSheet> {
                   children: [
                     Text(
                       widget.existingReminder != null ? 'Edit Reminder' : 'Set Reminder',
-                      style: AppTypography.headlineMedium(textColor),
+                      style: AppTypography.titleLarge(textColor),
                     ),
                     if (widget.existingReminder != null)
                       IconButton(
@@ -454,7 +454,7 @@ class _ReminderBottomSheetState extends State<ReminderBottomSheet> {
                             borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
                           ),
                         ),
-                        child: Text('Cancel', style: AppTypography.labelLarge(secondaryText)),
+                        child: Text('Cancel', style: AppTypography.titleMedium(secondaryText)),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -504,7 +504,7 @@ class _ReminderBottomSheetState extends State<ReminderBottomSheet> {
                         ),
                         child: Text(
                           widget.existingReminder != null ? 'Update Reminder' : 'Set Reminder',
-                          style: AppTypography.labelLarge(Colors.white).copyWith(fontWeight: FontWeight.w600),
+                          style: AppTypography.titleMedium(Colors.white).copyWith(fontWeight: FontWeight.w600),
                         ),
                       ),
                     ),

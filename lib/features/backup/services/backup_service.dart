@@ -13,7 +13,7 @@ class BackupService {
     return repository.getBaseDirectory();
   }
 
-  /// Resolves the dedicated local backups directory (<Documents>/backups).
+  /// Resolves the dedicated local backups directory (`<Documents>/backups`).
   Future<Directory> getBackupDirectory() async {
     final base = await getBaseDirectory();
     final dir = base != null

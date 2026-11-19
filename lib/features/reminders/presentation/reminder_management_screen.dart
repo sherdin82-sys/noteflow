@@ -89,7 +89,7 @@ class _ReminderManagementScreenState extends ConsumerState<ReminderManagementScr
     return Scaffold(
       backgroundColor: surfaceColor,
       appBar: AppBar(
-        title: Text('Reminders', style: AppTypography.headlineMedium(textColor)),
+        title: Text('Reminders', style: AppTypography.titleLarge(textColor)),
         centerTitle: false,
         actions: [
           IconButton(
