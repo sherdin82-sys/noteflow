@@ -352,7 +352,7 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
     final result = await showModalBottomSheet<VoiceRecordingEntity>(
       context: context,
       isScrollControlled: true,
-      useSafeArea: true,
+      useSafeArea: false,
       backgroundColor: Colors.transparent,
       enableDrag: true,
       isDismissible: true,
