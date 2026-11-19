@@ -41,8 +41,18 @@ jobs:
 
       - name: Patch Plugins for AGP 9 Compatibility
         run: |
-          find ~/.pub-cache/hosted/pub.dev/ -name "build.gradle" -exec sed -i "s/apply plugin: 'kotlin-android'/\/\/ apply plugin: 'kotlin-android'/g" {} + || true
-          find ~/.pub-cache/hosted/pub.dev/ -name "build.gradle" -exec sed -i 's/apply plugin: "kotlin-android"/\/\/ apply plugin: "kotlin-android"/g' {} + || true
+          python3 -c "import glob, re
+          for p in glob.glob('/home/runner/.pub-cache/hosted/pub.dev/**/android/build.gradle', recursive=True):
+              try:
+                  content = open(p).read()
+                  content = re.sub(r'apply plugin: .kotlin-android.', '// apply plugin: kotlin-android', content)
+                  content = re.sub(r'kotlinOptions\s*\{[^}]*\}', '// kotlinOptions removed for AGP 9', content)
+                  if 'android {' in content and 'compileSdk' not in content:
+                      content = content.replace('android {', 'android {\n    compileSdk 35')
+                  open(p, 'w').write(content)
+              except Exception as e:
+                  print(f'Error patching {p}: {e}')
+          "
 
       - name: Run Flutter Analyzer
         run: flutter analyze --no-fatal-infos

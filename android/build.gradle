@@ -23,6 +23,10 @@ subprojects { subproject ->
                 content = content.replace('apply plugin: "kotlin-android"', '// apply plugin: "kotlin-android"')
                 changed = true
             }
+            if (content.contains("kotlinOptions")) {
+                content = content.replaceAll(/(?s)kotlinOptions\s*\{.*?\}/, "// kotlinOptions removed for AGP 9")
+                changed = true
+            }
             if (content.contains("android {") && !content.contains("compileSdk")) {
                 content = content.replace("android {", "android {\n    compileSdk 35")
                 changed = true
