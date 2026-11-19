@@ -40,39 +40,7 @@ jobs:
         run: flutter pub get
 
       - name: Patch Plugins for AGP 9 and Dart Compatibility
-        run: |
-          python3 -c "import glob, re
-          for p in glob.glob('/home/runner/.pub-cache/hosted/pub.dev/**/android/build.gradle', recursive=True):
-              try:
-                  content = open(p).read()
-                  content = re.sub(r'apply plugin: .kotlin-android.', '// apply plugin: kotlin-android', content)
-                  content = re.sub(r'kotlinOptions\s*\{[^}]*\}', '// kotlinOptions removed for AGP 9', content)
-                  if 'android {' in content and 'compileSdk' not in content:
-                      content = content.replace('android {', 'android {\n    compileSdk 35')
-                  open(p, 'w').write(content)
-              except Exception as e:
-                  print(f'Error patching {p}: {e}')
-
-          for p in glob.glob('/home/runner/.pub-cache/hosted/pub.dev/**/record_linux.dart', recursive=True):
-              try:
-                  content = open(p).read()
-                  if 'dart:typed_data' not in content:
-                      content = "import 'dart:typed_data';\n" + content
-                  if 'startStream' not in content:
-                      content = content.replace(
-                          'class RecordLinux extends RecordPlatform {',
-                          'class RecordLinux extends RecordPlatform {\n  @override\n  Future<Stream<Uint8List>> startStream(String recorderId, RecordConfig config) async => const Stream.empty();\n'
-                      )
-                  if 'Future<bool> hasPermission(String recorderId) {' in content:
-                      content = content.replace(
-                          'Future<bool> hasPermission(String recorderId) {',
-                          'Future<bool> hasPermission(String recorderId, {bool request = true}) {'
-                      )
-                  open(p, 'w').write(content)
-                  print(f'Successfully patched record_linux at {p}')
-              except Exception as e:
-                  print(f'Error patching {p}: {e}')
-          "
+        run: python3 scripts/patch_plugins.py
 
 
       - name: Run Flutter Analyzer
