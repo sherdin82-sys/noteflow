@@ -62,5 +62,86 @@ def main():
         except Exception as e:
             print(f'Error patching {p}: {e}')
 
+    # 3. Patch package:jni types.dart to strip JNI descriptor 'L...;' and convert slashes to dots
+    jni_types_files = glob.glob(f'{pub_cache}/**/jni-*/lib/src/types.dart', recursive=True) + glob.glob(f'{pub_cache}/**/jni/lib/src/types.dart', recursive=True)
+    for p in jni_types_files:
+        try:
+            with open(p, 'r', encoding='utf-8') as f:
+                content = f.read()
+            changed = False
+            if 'JClass.forName(className ?? signature)' in content:
+                content = content.replace(
+                    'JClass.forName(className ?? signature)',
+                    '''() {
+  String name = className ?? signature;
+  if (name.startsWith('L') && name.endsWith(';')) {
+    name = name.substring(1, name.length - 1);
+  }
+  name = name.replaceAll('/', '.');
+  return JClass.forName(name);
+}()'''
+                )
+                changed = True
+            if changed:
+                with open(p, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                print(f'Successfully patched package:jni types.dart at {p}')
+        except Exception as e:
+            print(f'Error patching {p}: {e}')
+
+    # 4. Patch path_provider.g.dart if present to supply proper binary className
+    path_provider_g_files = glob.glob(f'{pub_cache}/**/path_provider_android*/lib/src/path_provider.g.dart', recursive=True)
+    for p in path_provider_g_files:
+        try:
+            with open(p, 'r', encoding='utf-8') as f:
+                content = f.read()
+            changed = False
+            if "String get signature => r'Landroid/content/Context;';" in content and 'String get className' not in content:
+                content = content.replace(
+                    "String get signature => r'Landroid/content/Context;';",
+                    "String get signature => r'Landroid/content/Context;';\n  @jni\$_.internal\n  @core\$_.override\n  String get className => r'android.content.Context';"
+                )
+                changed = True
+            if changed:
+                with open(p, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                print(f'Successfully patched path_provider.g.dart at {p}')
+        except Exception as e:
+            print(f'Error patching {p}: {e}')
+
+    # 5. Patch dartjni.h if present to normalize JNI type descriptors for Android ClassLoader
+    dartjni_h_files = glob.glob(f'{pub_cache}/**/dartjni.h', recursive=True)
+    for p in dartjni_h_files:
+        try:
+            with open(p, 'r', encoding='utf-8') as f:
+                content = f.read()
+            changed = False
+            target = 'jstring className = (*jniEnv)->NewStringUTF(jniEnv, name);'
+            replacement = '''char cleanName[256];
+  const char* src = name;
+  if (src[0] == 'L' && src[strlen(src)-1] == ';') {
+    size_t len = strlen(src) - 2;
+    if (len >= sizeof(cleanName)) len = sizeof(cleanName) - 1;
+    strncpy(cleanName, src + 1, len);
+    cleanName[len] = '\\0';
+  } else {
+    strncpy(cleanName, src, sizeof(cleanName) - 1);
+    cleanName[sizeof(cleanName) - 1] = '\\0';
+  }
+  for (int i = 0; cleanName[i] != '\\0'; i++) {
+    if (cleanName[i] == '/') cleanName[i] = '.';
+  }
+  jstring className = (*jniEnv)->NewStringUTF(jniEnv, cleanName);'''
+            if target in content and replacement not in content:
+                content = content.replace(target, replacement)
+                changed = True
+            if changed:
+                with open(p, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                print(f'Successfully patched dartjni.h at {p}')
+        except Exception as e:
+            print(f'Error patching {p}: {e}')
+
 if __name__ == '__main__':
     main()
+

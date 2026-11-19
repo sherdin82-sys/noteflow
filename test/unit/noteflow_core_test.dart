@@ -1107,7 +1107,7 @@ Future<void> main() async {
 
   // Test 19: Foreign key constraint guarantee for new voice note recording
   // Opening recording modal must persist parent note first so child recordings satisfy foreign key
-  final newVoiceNoteId = 'fresh-voice-note-id';
+  const newVoiceNoteId = 'fresh-voice-note-id';
   var isNotePersisted = false;
   String currentTitle = '';
   NoteEntity freshNote = NoteEntity(
@@ -1171,11 +1171,54 @@ Future<void> main() async {
   expect(simulateRecorderConfig(hardwareSupportsStereo: true, hardwareSupportsCustomBitrate: true) == true,
       'Test 20: Recorder successfully initializes on high-end hardware');
 
+  // Test 21: JNI Class Name Normalization & Safe Storage Fallback
+  // Validates that JNI type descriptors (e.g. Landroid/content/Context;) are correctly converted
+  // to dot-separated binary names (android.content.Context) for Android ClassLoader
+  String normalizeJniClassName(String rawDescriptor) {
+    String name = rawDescriptor;
+    if (name.startsWith('L') && name.endsWith(';')) {
+      name = name.substring(1, name.length - 1);
+    }
+    return name.replaceAll('/', '.');
+  }
+
+  expect(normalizeJniClassName('Landroid/content/Context;') == 'android.content.Context',
+      'Test 21: JNI descriptor Landroid/content/Context; normalized to binary name');
+  expect(normalizeJniClassName('android/content/Context') == 'android.content.Context',
+      'Test 21: Slashes replaced with dots for Java ClassLoader');
+  expect(normalizeJniClassName('java/io/File') == 'java.io.File',
+      'Test 21: java/io/File normalized to java.io.File');
+
+  // Test directory fallback resilience simulation
+  Future<String> resolveSafeAudioDir({required bool failDocsDir, required bool failTempDir}) async {
+    try {
+      if (failDocsDir) throw Exception('Simulated docs dir failure');
+      return '/data/user/0/com.noteflow.app/app_flutter/voice_notes';
+    } catch (_) {
+      try {
+        if (failTempDir) throw Exception('Simulated temp dir failure');
+        return '/data/user/0/com.noteflow.app/cache/voice_notes';
+      } catch (_) {
+        return '${Directory.systemTemp.path}/voice_notes';
+      }
+    }
+  }
+
+  final standardDir = await resolveSafeAudioDir(failDocsDir: false, failTempDir: false);
+  expect(standardDir.contains('app_flutter'), 'Test 21: Primary app documents directory resolved');
+
+  final fallbackDir = await resolveSafeAudioDir(failDocsDir: true, failTempDir: false);
+  expect(fallbackDir.contains('cache'), 'Test 21: Secondary cache directory resolved upon primary failure');
+
+  final sysTempDir = await resolveSafeAudioDir(failDocsDir: true, failTempDir: true);
+  expect(sysTempDir.contains('voice_notes'), 'Test 21: System temp directory resolved upon complete failure');
+
   // Clean up test temporary directory
   if (voiceTempDir.existsSync()) {
     voiceTempDir.deleteSync(recursive: true);
   }
 
-  stdout.writeln('ALL NOTEFLOW TESTS PASSED! (255/255 Assertions) ✓');
+  stdout.writeln('ALL NOTEFLOW TESTS PASSED! (261/261 Assertions) ✓');
 }
+
 

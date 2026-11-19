@@ -218,8 +218,19 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget> with SingleTickerProv
         return;
       }
 
-      final docsDir = await getApplicationDocumentsDirectory();
-      final audioDir = Directory('${docsDir.path}/voice_notes');
+      String basePath;
+      try {
+        final docsDir = await getApplicationDocumentsDirectory();
+        basePath = docsDir.path;
+      } catch (_) {
+        try {
+          final tempDir = await getTemporaryDirectory();
+          basePath = tempDir.path;
+        } catch (_) {
+          basePath = Directory.systemTemp.path;
+        }
+      }
+      final audioDir = Directory('$basePath/voice_notes');
       if (!await audioDir.exists()) {
         await audioDir.create(recursive: true);
       }

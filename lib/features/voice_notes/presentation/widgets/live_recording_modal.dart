@@ -76,7 +76,7 @@ class _LiveRecordingModalState extends State<LiveRecordingModal> with SingleTick
       if (_currentRecordingPath != null) {
         final f = File(_currentRecordingPath!);
         f.exists().then((exists) {
-          if (exists) f.delete().catchError((_) {});
+          if (exists) f.delete().catchError((_) => f);
         });
       }
     }
@@ -116,8 +116,19 @@ class _LiveRecordingModalState extends State<LiveRecordingModal> with SingleTick
         }
       } catch (_) {}
 
-      final appDocDir = await getApplicationDocumentsDirectory();
-      final dir = Directory('${appDocDir.path}/voice_notes/${widget.voiceNoteId}');
+      String basePath;
+      try {
+        final appDocDir = await getApplicationDocumentsDirectory();
+        basePath = appDocDir.path;
+      } catch (_) {
+        try {
+          final tempDir = await getTemporaryDirectory();
+          basePath = tempDir.path;
+        } catch (_) {
+          basePath = Directory.systemTemp.path;
+        }
+      }
+      final dir = Directory('$basePath/voice_notes/${widget.voiceNoteId}');
       if (!await dir.exists()) {
         await dir.create(recursive: true);
       }
