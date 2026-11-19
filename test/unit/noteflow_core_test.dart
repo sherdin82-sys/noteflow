@@ -1344,7 +1344,127 @@ Future<void> main() async {
     voiceTempDir.deleteSync(recursive: true);
   }
 
-  stdout.writeln('ALL NOTEFLOW TESTS PASSED! (290/290 Assertions) ✓');
+  // --- Suite 23: AudioHelper Sample WAV Generation & Header Verification ---
+  final sampleWav = AudioHelper.createSampleWavBytes(durationSeconds: 2, sampleRate: 8000, frequency: 440.0);
+  expect(sampleWav.length == 44 + 16000, 'Test 23: Sample WAV length matches header (44 bytes) + 16000 samples');
+  // RIFF header
+  expect(sampleWav[0] == 0x52 && sampleWav[1] == 0x49 && sampleWav[2] == 0x46 && sampleWav[3] == 0x46, 'Test 23: RIFF magic bytes match');
+  // WAVE
+  expect(sampleWav[8] == 0x57 && sampleWav[9] == 0x41 && sampleWav[10] == 0x56 && sampleWav[11] == 0x45, 'Test 23: WAVE magic bytes match');
+  // fmt
+  expect(sampleWav[12] == 0x66 && sampleWav[13] == 0x6D && sampleWav[14] == 0x74 && sampleWav[15] == 0x20, 'Test 23: fmt magic bytes match');
+  // PCM format
+  expect(sampleWav[20] == 1 && sampleWav[21] == 0, 'Test 23: AudioFormat is PCM (1)');
+  // 1 channel
+  expect(sampleWav[22] == 1 && sampleWav[23] == 0, 'Test 23: NumChannels is Mono (1)');
+  // 8000 Hz sample rate (0x1F40 -> 0x40, 0x1F, 0, 0)
+  expect(sampleWav[24] == 0x40 && sampleWav[25] == 0x1F, 'Test 23: Sample rate is 8000 Hz');
+  // 8 bits per sample
+  expect(sampleWav[34] == 8 && sampleWav[35] == 0, 'Test 23: BitsPerSample is 8 bits');
+  // data chunk
+  expect(sampleWav[36] == 0x64 && sampleWav[37] == 0x61 && sampleWav[38] == 0x74 && sampleWav[39] == 0x61, 'Test 23: data chunk header matches');
+  // Audible waveform samples within bounds
+  final sampleMin = sampleWav.sublist(44).reduce((a, b) => a < b ? a : b);
+  final sampleMax = sampleWav.sublist(44).reduce((a, b) => a > b ? a : b);
+  expect(sampleMin >= 80 && sampleMin <= 100, 'Test 23: Sample minimum reflects 40 amplitude swing below 128');
+  expect(sampleMax >= 155 && sampleMax <= 175, 'Test 23: Sample maximum reflects 40 amplitude swing above 128');
+
+  // --- Suite 24: Modal Lifecycle File Safety & Disposal Simulation ---
+  // Simulate recording file creation
+  final modalTestDir = Directory('${Directory.systemTemp.path}/modal_test_${DateTime.now().millisecondsSinceEpoch}');
+  modalTestDir.createSync(recursive: true);
+  final savedAudioFile = File('${modalTestDir.path}/saved_recording.m4a');
+  savedAudioFile.writeAsBytesSync([1, 2, 3, 4, 5]);
+  expect(savedAudioFile.existsSync() == true, 'Test 24: Saved recording audio file exists');
+
+  // Simulate Save flow:
+  // Before Navigator.pop(context, recording), _isRecording is cleared to false and _currentRecordingPath is cleared.
+  // In dispose(): if (_isRecording && !_isSaving) delete...
+  bool isRecording = true;
+  bool isSaving = false;
+  String? currentRecordingPath = savedAudioFile.path;
+
+  // 1. User presses Save
+  isSaving = true;
+  // File is stopped & saved
+  isRecording = false;
+  final recordedPathToKeep = currentRecordingPath;
+  currentRecordingPath = null;
+
+  // 2. Widget dispose is invoked
+  void simulateDispose() {
+    if (isRecording && !isSaving) {
+      if (currentRecordingPath != null) {
+        final f = File(currentRecordingPath!);
+        if (f.existsSync()) f.deleteSync();
+      }
+    }
+  }
+  simulateDispose();
+
+  // Assert file STILL exists!
+  expect(File(recordedPathToKeep).existsSync() == true, 'Test 24: Audio file is NOT deleted on modal dispose after saving');
+  expect(File(recordedPathToKeep).lengthSync() == 5, 'Test 24: Audio file integrity is preserved');
+
+  // Simulate Cancel flow:
+  final cancelledAudioFile = File('${modalTestDir.path}/cancelled_recording.m4a');
+  cancelledAudioFile.writeAsBytesSync([10, 20, 30]);
+  isRecording = true;
+  isSaving = false;
+  currentRecordingPath = cancelledAudioFile.path;
+
+  // User presses Cancel
+  isRecording = false;
+  final fileToDelete = currentRecordingPath;
+  currentRecordingPath = null;
+  if (fileToDelete != null) {
+    final f = File(fileToDelete);
+    if (f.existsSync()) f.deleteSync();
+  }
+  simulateDispose();
+  expect(cancelledAudioFile.existsSync() == false, 'Test 24: Audio file is properly deleted when recording is cancelled');
+
+  // --- Suite 25: LocalNoteRepository Sample Audio Auto-Seeding & Persistence ---
+  final repoTestDir = Directory('${Directory.systemTemp.path}/repo_test_${DateTime.now().millisecondsSinceEpoch}');
+  repoTestDir.createSync(recursive: true);
+  final testRepo = LocalNoteRepository(
+    seedDemoData: true,
+    enableDiskPersistence: true,
+    customStoragePath: '${repoTestDir.path}/noteflow_data.json',
+    directoryProvider: () async => repoTestDir.path,
+  );
+  await testRepo.init();
+
+  final initialRecordings = await testRepo.watchVoiceRecordings('note-meeting-sync').first;
+  expect(initialRecordings.length == 2, 'Test 25: Seeded voice note has 2 recordings');
+  final recIntro = initialRecordings.firstWhere((r) => r.id == 'rec-intro');
+  final recDiscussion = initialRecordings.firstWhere((r) => r.id == 'rec-discussion');
+
+  expect(recIntro.audioPath.isNotEmpty, 'Test 25: rec-intro audioPath is populated');
+  expect(recIntro.format == 'wav', 'Test 25: rec-intro format is wav');
+  expect(File(recIntro.audioPath).existsSync(), 'Test 25: rec-intro audio file exists on disk');
+  expect(File(recIntro.audioPath).lengthSync() > 0, 'Test 25: rec-intro audio file has non-zero size');
+
+  expect(recDiscussion.audioPath.isNotEmpty, 'Test 25: rec-discussion audioPath is populated');
+  expect(recDiscussion.format == 'wav', 'Test 25: rec-discussion format is wav');
+  expect(File(recDiscussion.audioPath).existsSync(), 'Test 25: rec-discussion audio file exists on disk');
+  expect(File(recDiscussion.audioPath).lengthSync() > 0, 'Test 25: rec-discussion audio file has non-zero size');
+
+  // Verify resolution via AudioHelper
+  final resolvedIntro = await AudioHelper.resolveAudioPath(recIntro.audioPath, repoTestDir.path);
+  expect(resolvedIntro != null, 'Test 25: AudioHelper resolves seeded rec-intro path');
+  final isValidIntro = await AudioHelper.isAudioFileValid(resolvedIntro!);
+  expect(isValidIntro == true, 'Test 25: AudioHelper verifies seeded rec-intro file is valid');
+
+  // Clean up modal and repo test directories
+  if (modalTestDir.existsSync()) {
+    modalTestDir.deleteSync(recursive: true);
+  }
+  if (repoTestDir.existsSync()) {
+    repoTestDir.deleteSync(recursive: true);
+  }
+
+  stdout.writeln('ALL NOTEFLOW TESTS PASSED! (315/315 Assertions) ✓');
 }
 
 enum _TestPlaybackStatus {

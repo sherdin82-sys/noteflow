@@ -71,7 +71,7 @@ class _LiveRecordingModalState extends State<LiveRecordingModal> with SingleTick
     _amplitudeTimer?.cancel();
     _pulseController.dispose();
     _titleController.dispose();
-    if (_isRecording) {
+    if (_isRecording && !_isSaving) {
       _recorder.cancel().catchError((_) {});
       if (_currentRecordingPath != null) {
         final f = File(_currentRecordingPath!);
@@ -255,10 +255,13 @@ class _LiveRecordingModalState extends State<LiveRecordingModal> with SingleTick
   Future<void> _cancelRecording() async {
     _durationTimer?.cancel();
     _amplitudeTimer?.cancel();
+    _isRecording = false;
+    final fileToDelete = _currentRecordingPath;
+    _currentRecordingPath = null;
     try {
       await _recorder.cancel();
-      if (_currentRecordingPath != null) {
-        final f = File(_currentRecordingPath!);
+      if (fileToDelete != null) {
+        final f = File(fileToDelete);
         if (await f.exists()) {
           await f.delete();
         }
@@ -279,7 +282,9 @@ class _LiveRecordingModalState extends State<LiveRecordingModal> with SingleTick
 
     try {
       final path = await _recorder.stop();
+      _isRecording = false;
       final finalPath = path ?? _currentRecordingPath;
+      _currentRecordingPath = null;
 
       if (finalPath == null) {
         if (mounted) Navigator.pop(context, null);

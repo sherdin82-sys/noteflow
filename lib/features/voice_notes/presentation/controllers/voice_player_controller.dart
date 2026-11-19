@@ -194,12 +194,35 @@ class VoicePlayerNotifier extends StateNotifier<VoicePlaybackState> {
     // 4. Starting fresh or switching recordings:
     // Step A: First verify audio file exists and is not 0 bytes on disk
     String? basePath;
+    String? tempPath;
     try {
       final appDocDir = await getApplicationDocumentsDirectory();
       basePath = appDocDir.path;
     } catch (_) {}
+    try {
+      final tempDir = await getTemporaryDirectory();
+      tempPath = tempDir.path;
+    } catch (_) {}
 
-    final resolvedPath = await AudioHelper.resolveAudioPath(filePath, basePath);
+    String? resolvedPath = await AudioHelper.resolveAudioPath(filePath, basePath);
+    if (resolvedPath == null && tempPath != null) {
+      resolvedPath = await AudioHelper.resolveAudioPath(filePath, tempPath);
+    }
+
+    // Fallback: If path is empty or missing for demo sample recordings, generate on the fly
+    if (resolvedPath == null && (recordingId.contains('intro') || recordingId.contains('discussion') || filePath.isEmpty)) {
+      try {
+        final docDir = await getApplicationDocumentsDirectory();
+        final seedFile = File('${docDir.path}/voice_notes/note-meeting-sync/$recordingId.wav');
+        seedFile.parent.createSync(recursive: true);
+        if (!seedFile.existsSync() || seedFile.lengthSync() == 0) {
+          final freq = recordingId.contains('intro') ? 440.0 : 554.37;
+          seedFile.writeAsBytesSync(AudioHelper.createSampleWavBytes(durationSeconds: 4, frequency: freq));
+        }
+        resolvedPath = seedFile.path;
+      } catch (_) {}
+    }
+
     if (resolvedPath == null) {
       state = VoicePlaybackState(
         activeRecordingId: recordingId,

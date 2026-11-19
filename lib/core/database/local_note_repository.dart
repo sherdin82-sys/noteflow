@@ -4,6 +4,7 @@ import 'dart:io';
 import '../../shared/models/note_entity.dart';
 import '../../shared/models/folder_entity.dart';
 import '../../shared/models/voice_recording_entity.dart';
+import '../utils/audio_helper.dart';
 import 'note_repository.dart';
 
 class LocalNoteRepository implements NoteRepository {
@@ -79,6 +80,8 @@ class LocalNoteRepository implements NoteRepository {
             _voiceRecordings.add(VoiceRecordingEntity.fromMap(Map<String, dynamic>.from(r as Map)));
           }
 
+          await _ensureSampleAudioFiles();
+
           _initialized = true;
           _emitNotes();
           _emitFolders();
@@ -88,6 +91,7 @@ class LocalNoteRepository implements NoteRepository {
       }
 
       // If file didn't exist or was empty, seed demo data and save to disk
+      await _ensureSampleAudioFiles();
       if (_seedDemoData && _notes.isNotEmpty) {
         await _saveToDisk();
       }
@@ -95,6 +99,51 @@ class LocalNoteRepository implements NoteRepository {
       // In case of error (e.g. non-Flutter test environment), maintain in-memory state
     }
     _initialized = true;
+  }
+
+  Future<void> _ensureSampleAudioFiles() async {
+    String? baseDir;
+    if (_directoryProvider != null) {
+      try {
+        baseDir = await _directoryProvider!();
+      } catch (_) {}
+    } else if (_customStoragePath != null) {
+      baseDir = File(_customStoragePath!).parent.path;
+    }
+    if (baseDir == null) return;
+
+    bool updated = false;
+    for (int i = 0; i < _voiceRecordings.length; i++) {
+      final rec = _voiceRecordings[i];
+      if (rec.voiceNoteId == 'note-meeting-sync' || rec.audioPath.isEmpty) {
+        final targetPath = '$baseDir/voice_notes/${rec.voiceNoteId}/${rec.id}.wav';
+        final targetFile = File(targetPath);
+        if (!targetFile.existsSync() || targetFile.lengthSync() == 0) {
+          try {
+            targetFile.parent.createSync(recursive: true);
+            final freq = rec.id.contains('intro') ? 440.0 : 554.37;
+            final durationSec = rec.durationMs > 0 ? (rec.durationMs / 1000).clamp(3, 10).toInt() : 4;
+            targetFile.writeAsBytesSync(
+              AudioHelper.createSampleWavBytes(
+                durationSeconds: durationSec,
+                frequency: freq,
+              ),
+            );
+          } catch (_) {}
+        }
+        if (rec.audioPath != targetFile.path && targetFile.existsSync()) {
+          _voiceRecordings[i] = rec.copyWith(
+            audioPath: targetFile.path,
+            format: 'wav',
+            fileSize: targetFile.lengthSync(),
+          );
+          updated = true;
+        }
+      }
+    }
+    if (updated) {
+      await _saveToDisk();
+    }
   }
 
   Future<File?> _getStorageFile() async {
