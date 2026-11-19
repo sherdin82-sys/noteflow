@@ -188,7 +188,7 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
               ),
               ColorTintPicker(
                 selectedIndex: _currentNote.colorIndex,
-                onColorSelected: (idx) {
+                onSelectColor: (idx) {
                   setState(() {
                     _currentNote = _currentNote.copyWith(colorIndex: idx);
                   });
