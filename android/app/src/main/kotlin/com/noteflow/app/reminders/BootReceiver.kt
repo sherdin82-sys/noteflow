@@ -66,13 +66,13 @@ class BootReceiver : BroadcastReceiver() {
                 if (snoozedUntilStr.isNotBlank()) {
                     try {
                         triggerTimeMs = isoFormat.parse(snoozedUntilStr.substring(0, minOf(19, snoozedUntilStr.length)))?.time ?: -1
-                    } catch (_) {}
+                    } catch (e: Exception) {}
                 }
 
                 if (triggerTimeMs <= now && scheduledAtStr.isNotBlank()) {
                     try {
                         triggerTimeMs = isoFormat.parse(scheduledAtStr.substring(0, minOf(19, scheduledAtStr.length)))?.time ?: -1
-                    } catch (_) {}
+                    } catch (e: Exception) {}
                 }
 
                 // If scheduled time is in future, re-schedule with AlarmManager
