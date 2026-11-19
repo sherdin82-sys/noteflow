@@ -53,9 +53,11 @@ jobs:
               except Exception as e:
                   print(f'Error patching {p}: {e}')
 
-          for p in glob.glob('/home/runner/.pub-cache/hosted/pub.dev/**/record_linux/lib/record_linux.dart', recursive=True):
+          for p in glob.glob('/home/runner/.pub-cache/hosted/pub.dev/**/record_linux.dart', recursive=True):
               try:
                   content = open(p).read()
+                  if 'dart:typed_data' not in content:
+                      content = "import 'dart:typed_data';\n" + content
                   if 'startStream' not in content:
                       content = content.replace(
                           'class RecordLinux extends RecordPlatform {',
