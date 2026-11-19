@@ -154,7 +154,7 @@ class VoicePlayerNotifier extends StateNotifier<VoicePlaybackState> {
     });
   }
 
-  Future<void> playRecording(String recordingId, String filePath) async {
+  Future<void> playRecording(String recordingId, String filePath, [String? voiceNoteId]) async {
     if (recordingId.isEmpty || filePath.isEmpty) {
       state = VoicePlaybackState(
         activeRecordingId: recordingId.isEmpty ? null : recordingId,
@@ -207,6 +207,16 @@ class VoicePlayerNotifier extends StateNotifier<VoicePlaybackState> {
     String? resolvedPath = await AudioHelper.resolveAudioPath(filePath, basePath);
     if (resolvedPath == null && tempPath != null) {
       resolvedPath = await AudioHelper.resolveAudioPath(filePath, tempPath);
+    }
+
+    if (resolvedPath == null && basePath != null) {
+      resolvedPath = await AudioHelper.recoverOrMigrateAudioFile(
+        storedPath: filePath,
+        voiceNoteId: voiceNoteId ?? '',
+        recordingId: recordingId,
+        documentsBasePath: basePath,
+        tempBasePath: tempPath,
+      );
     }
 
     // Fallback: If path is empty or missing for demo sample recordings, generate on the fly

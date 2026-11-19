@@ -52,6 +52,122 @@ class AudioHelper {
     return bytes;
   }
 
+  /// Safely copies an audio recording from temporary storage to the permanent
+  /// application documents directory: voice_notes/{voiceNoteId}/{recordingId}.{format}.
+  /// Verifies file existence and non-zero size before and after transfer.
+  static Future<String?> saveRecordingToPermanentStorage({
+    required String tempPath,
+    required String voiceNoteId,
+    required String recordingId,
+    required String documentsBasePath,
+    String format = 'm4a',
+  }) async {
+    final tempFile = File(tempPath);
+    if (!await tempFile.exists()) {
+      return null;
+    }
+    final tempSize = await tempFile.length();
+    if (tempSize == 0) {
+      return null;
+    }
+
+    final permanentDir = Directory('$documentsBasePath/voice_notes/$voiceNoteId');
+    if (!await permanentDir.exists()) {
+      await permanentDir.create(recursive: true);
+    }
+
+    final permanentFile = File('${permanentDir.path}/$recordingId.$format');
+
+    // Safely copy temporary file to permanent storage
+    await tempFile.copy(permanentFile.path);
+
+    // Verify permanent file exists and is not empty
+    if (!await permanentFile.exists() || await permanentFile.length() == 0) {
+      return null;
+    }
+
+    // Only after permanent file is verified, clean up temporary file
+    try {
+      if (tempFile.path != permanentFile.path && await tempFile.exists()) {
+        await tempFile.delete();
+      }
+    } catch (_) {}
+
+    return permanentFile.path;
+  }
+
+  /// Attempts to recover or migrate an existing recording file if it has moved,
+  /// is located in a temporary directory, or has a relative or outdated path.
+  /// If recovered to permanent storage, returns the new permanent path.
+  /// If the file cannot be found in any candidate location, returns null.
+  static Future<String?> recoverOrMigrateAudioFile({
+    required String storedPath,
+    required String voiceNoteId,
+    required String recordingId,
+    required String documentsBasePath,
+    String? tempBasePath,
+    String format = 'm4a',
+  }) async {
+    final permanentDir = Directory('$documentsBasePath/voice_notes/$voiceNoteId');
+    final expectedPermanentFile = File('${permanentDir.path}/$recordingId.$format');
+
+    // Case 1: Already at expected permanent destination and valid
+    if (await expectedPermanentFile.exists() && await expectedPermanentFile.length() > 0) {
+      return expectedPermanentFile.path;
+    }
+
+    // Case 2: Stored path exists on disk
+    if (storedPath.isNotEmpty) {
+      final directFile = File(storedPath);
+      if (await directFile.exists() && await directFile.length() > 0) {
+        // If not already in permanent dir, migrate it
+        if (!directFile.path.startsWith(permanentDir.path)) {
+          if (!await permanentDir.exists()) {
+            await permanentDir.create(recursive: true);
+          }
+          final copied = await directFile.copy(expectedPermanentFile.path);
+          if (await copied.exists() && await copied.length() > 0) {
+            return copied.path;
+          }
+        }
+        return directFile.path;
+      }
+    }
+
+    // Case 3: Search candidates in tempBasePath or alternate locations
+    final candidatePaths = <String>[];
+    if (tempBasePath != null && tempBasePath.isNotEmpty) {
+      candidatePaths.add('$tempBasePath/voice_recordings_temp/$recordingId.$format');
+      candidatePaths.add('$tempBasePath/voice_notes/$voiceNoteId/$recordingId.$format');
+      candidatePaths.add('$tempBasePath/$recordingId.$format');
+    }
+    if (storedPath.isNotEmpty) {
+      final fileName = storedPath.split(Platform.pathSeparator).last;
+      candidatePaths.add('$documentsBasePath/voice_notes/$fileName');
+      if (tempBasePath != null) {
+        candidatePaths.add('$tempBasePath/$fileName');
+      }
+    }
+
+    for (final candidatePath in candidatePaths) {
+      final candidateFile = File(candidatePath);
+      if (await candidateFile.exists() && await candidateFile.length() > 0) {
+        if (!await permanentDir.exists()) {
+          await permanentDir.create(recursive: true);
+        }
+        final copied = await candidateFile.copy(expectedPermanentFile.path);
+        if (await copied.exists() && await copied.length() > 0) {
+          try {
+            await candidateFile.delete();
+          } catch (_) {}
+          return copied.path;
+        }
+      }
+    }
+
+    return null;
+  }
+
   /// Resolves an audio file path, handling absolute paths as well as
   /// paths that may have migrated or moved across app reinstalls or updates.
   static Future<String?> resolveAudioPath(String storedPath, [String? baseDirectory]) async {

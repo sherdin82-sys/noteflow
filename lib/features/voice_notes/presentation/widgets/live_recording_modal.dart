@@ -116,25 +116,20 @@ class _LiveRecordingModalState extends State<LiveRecordingModal> with SingleTick
         }
       } catch (_) {}
 
-      String basePath;
+      String tempBasePath;
       try {
-        final appDocDir = await getApplicationDocumentsDirectory();
-        basePath = appDocDir.path;
+        final tempDir = await getTemporaryDirectory();
+        tempBasePath = tempDir.path;
       } catch (_) {
-        try {
-          final tempDir = await getTemporaryDirectory();
-          basePath = tempDir.path;
-        } catch (_) {
-          basePath = Directory.systemTemp.path;
-        }
+        tempBasePath = Directory.systemTemp.path;
       }
-      final dir = Directory('$basePath/voice_notes/${widget.voiceNoteId}');
-      if (!await dir.exists()) {
-        await dir.create(recursive: true);
+      final tempDir = Directory('$tempBasePath/voice_recordings_temp');
+      if (!await tempDir.exists()) {
+        await tempDir.create(recursive: true);
       }
 
       _recordingId = const Uuid().v4();
-      final filePath = '${dir.path}/$_recordingId.m4a';
+      final filePath = '${tempDir.path}/$_recordingId.m4a';
       _currentRecordingPath = filePath;
 
       // Multi-tier robust hardware codec configuration:
@@ -291,23 +286,23 @@ class _LiveRecordingModalState extends State<LiveRecordingModal> with SingleTick
         return;
       }
 
-      final file = File(finalPath);
+      final tempFile = File(finalPath);
       // Ensure file handles are flushed by the Android media subsystem
       int attempts = 0;
       while (attempts < 10) {
-        if (await file.exists() && await file.length() > 0) {
+        if (await tempFile.exists() && await tempFile.length() > 0) {
           break;
         }
         await Future.delayed(const Duration(milliseconds: 50));
         attempts++;
       }
 
-      int fileSize = 0;
-      if (await file.exists()) {
-        fileSize = await file.length();
+      int tempSize = 0;
+      if (await tempFile.exists()) {
+        tempSize = await tempFile.length();
       }
 
-      if (fileSize == 0) {
+      if (tempSize == 0) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -320,6 +315,40 @@ class _LiveRecordingModalState extends State<LiveRecordingModal> with SingleTick
         return;
       }
 
+      // Safe transfer to permanent storage inside app documents directory
+      String documentsBasePath;
+      try {
+        final appDocDir = await getApplicationDocumentsDirectory();
+        documentsBasePath = appDocDir.path;
+      } catch (_) {
+        documentsBasePath = Directory.systemTemp.path;
+      }
+
+      final recordingId = _recordingId ?? const Uuid().v4();
+      final permanentPath = await AudioHelper.saveRecordingToPermanentStorage(
+        tempPath: finalPath,
+        voiceNoteId: widget.voiceNoteId,
+        recordingId: recordingId,
+        documentsBasePath: documentsBasePath,
+        format: 'm4a',
+      );
+
+      if (permanentPath == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Failed to persist audio recording to permanent storage.'),
+              backgroundColor: AppColors.danger,
+            ),
+          );
+          Navigator.pop(context, null);
+        }
+        return;
+      }
+
+      final permanentFile = File(permanentPath);
+      final finalFileSize = await permanentFile.length();
+
       // If recording duration is 0, provide at least 1 second fallback if file was created
       final durationMs = _elapsed.inMilliseconds > 0 ? _elapsed.inMilliseconds : 1000;
 
@@ -328,12 +357,12 @@ class _LiveRecordingModalState extends State<LiveRecordingModal> with SingleTick
           : _titleController.text.trim();
 
       final recording = VoiceRecordingEntity(
-        id: _recordingId ?? const Uuid().v4(),
+        id: recordingId,
         voiceNoteId: widget.voiceNoteId,
         title: title,
-        audioPath: finalPath,
+        audioPath: permanentPath,
         durationMs: durationMs,
-        fileSize: fileSize,
+        fileSize: finalFileSize,
         createdAt: DateTime.now(),
         sortOrder: widget.nextSortOrder,
         isCompleted: false,

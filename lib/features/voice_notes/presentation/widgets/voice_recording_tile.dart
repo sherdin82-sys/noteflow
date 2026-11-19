@@ -178,6 +178,7 @@ class VoiceRecordingTile extends ConsumerWidget {
                     ref.read(voicePlayerProvider.notifier).playRecording(
                           recording.id,
                           recording.audioPath,
+                          recording.voiceNoteId,
                         );
                   },
                 ),

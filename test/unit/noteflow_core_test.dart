@@ -1417,10 +1417,8 @@ Future<void> main() async {
   isRecording = false;
   final fileToDelete = currentRecordingPath;
   currentRecordingPath = null;
-  if (fileToDelete != null) {
-    final f = File(fileToDelete);
-    if (f.existsSync()) f.deleteSync();
-  }
+  final f = File(fileToDelete);
+  if (f.existsSync()) f.deleteSync();
   simulateDispose();
   expect(cancelledAudioFile.existsSync() == false, 'Test 24: Audio file is properly deleted when recording is cancelled');
 
@@ -1456,15 +1454,96 @@ Future<void> main() async {
   final isValidIntro = await AudioHelper.isAudioFileValid(resolvedIntro!);
   expect(isValidIntro == true, 'Test 25: AudioHelper verifies seeded rec-intro file is valid');
 
-  // Clean up modal and repo test directories
+  // --- Suite 26: AudioHelper Two-Stage Storage & Recovery Verification ---
+  final twoStageTestDir = Directory('${Directory.systemTemp.path}/two_stage_test_${DateTime.now().millisecondsSinceEpoch}');
+  twoStageTestDir.createSync(recursive: true);
+  final tempStageDir = Directory('${twoStageTestDir.path}/temp');
+  tempStageDir.createSync(recursive: true);
+  final docsStageDir = Directory('${twoStageTestDir.path}/docs');
+  docsStageDir.createSync(recursive: true);
+
+  final dummyTempFile = File('${tempStageDir.path}/rec_temp_123.m4a');
+  dummyTempFile.writeAsBytesSync([0x00, 0x01, 0x02, 0x03, 0x04, 0x05]);
+  expect(dummyTempFile.existsSync() == true, 'Test 26: Temporary audio file exists');
+
+  final savedPermPath = await AudioHelper.saveRecordingToPermanentStorage(
+    tempPath: dummyTempFile.path,
+    voiceNoteId: 'note-vn-1',
+    recordingId: 'rec-p-1',
+    documentsBasePath: docsStageDir.path,
+    format: 'm4a',
+  );
+
+  expect(savedPermPath != null, 'Test 26: Permanent storage path returned successfully');
+  expect(File(savedPermPath!).existsSync() == true, 'Test 26: Permanent file exists on disk');
+  expect(File(savedPermPath).lengthSync() == 6, 'Test 26: Permanent file size preserved exactly');
+  expect(dummyTempFile.existsSync() == false, 'Test 26: Temporary recording file cleaned up after permanent transfer');
+
+  // Recovery of a file placed in temp
+  final orphanTempFile = File('${tempStageDir.path}/voice_recordings_temp/rec-orphan.m4a');
+  orphanTempFile.parent.createSync(recursive: true);
+  orphanTempFile.writeAsBytesSync([10, 20, 30, 40]);
+
+  final recoveredPath = await AudioHelper.recoverOrMigrateAudioFile(
+    storedPath: '${tempStageDir.path}/old_path.m4a',
+    voiceNoteId: 'note-vn-2',
+    recordingId: 'rec-orphan',
+    documentsBasePath: docsStageDir.path,
+    tempBasePath: tempStageDir.path,
+    format: 'm4a',
+  );
+
+  expect(recoveredPath != null, 'Test 26: Orphan file recovered to permanent storage');
+  expect(File(recoveredPath!).existsSync() == true, 'Test 26: Recovered file exists in permanent directory');
+  expect(File(recoveredPath).lengthSync() == 4, 'Test 26: Recovered file length matches');
+
+  // --- Suite 27: Database Deletion & Cascading File Cleanup ---
+  final newRecordingFile = File('${docsStageDir.path}/voice_notes/note-to-delete/rec-del-1.m4a');
+  newRecordingFile.parent.createSync(recursive: true);
+  newRecordingFile.writeAsBytesSync([9, 8, 7]);
+
+  final noteToDelete = NoteEntity(
+    id: 'note-to-delete',
+    title: 'Note To Delete',
+    content: '',
+    folderId: null,
+    isVoiceNote: true,
+    createdAt: DateTime.now(),
+    updatedAt: DateTime.now(),
+  );
+
+  final recToDelete = VoiceRecordingEntity(
+    id: 'rec-del-1',
+    voiceNoteId: 'note-to-delete',
+    title: 'Recording to delete',
+    audioPath: newRecordingFile.path,
+    durationMs: 5000,
+    fileSize: 3,
+    createdAt: DateTime.now(),
+  );
+
+  await testRepo.saveNote(noteToDelete);
+  await testRepo.saveVoiceRecording(recToDelete);
+
+  expect(newRecordingFile.existsSync() == true, 'Test 27: Recording file exists before note deletion');
+  await testRepo.deleteNote('note-to-delete');
+
+  expect(newRecordingFile.existsSync() == false, 'Test 27: Associated audio file is deleted when Voice Note is deleted');
+  final noteFolder = Directory('${docsStageDir.path}/voice_notes/note-to-delete');
+  expect(noteFolder.existsSync() == false, 'Test 27: Voice Note directory is deleted after deleteNote');
+
+  // Clean up modal, repo, and two-stage test directories
   if (modalTestDir.existsSync()) {
     modalTestDir.deleteSync(recursive: true);
   }
   if (repoTestDir.existsSync()) {
     repoTestDir.deleteSync(recursive: true);
   }
+  if (twoStageTestDir.existsSync()) {
+    twoStageTestDir.deleteSync(recursive: true);
+  }
 
-  stdout.writeln('ALL NOTEFLOW TESTS PASSED! (315/315 Assertions) ✓');
+  stdout.writeln('ALL NOTEFLOW TESTS PASSED! (326/326 Assertions) ✓');
 }
 
 enum _TestPlaybackStatus {

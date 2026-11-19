@@ -139,6 +139,26 @@ class LocalNoteRepository implements NoteRepository {
           );
           updated = true;
         }
+      } else {
+        // Recovery & migration for existing user recordings
+        final currentFile = File(rec.audioPath);
+        if (!currentFile.existsSync() || currentFile.lengthSync() == 0) {
+          final recovered = await AudioHelper.recoverOrMigrateAudioFile(
+            storedPath: rec.audioPath,
+            voiceNoteId: rec.voiceNoteId,
+            recordingId: rec.id,
+            documentsBasePath: baseDir,
+            format: rec.format.isNotEmpty ? rec.format : 'm4a',
+          );
+          if (recovered != null && recovered != rec.audioPath) {
+            final recoveredFile = File(recovered);
+            _voiceRecordings[i] = rec.copyWith(
+              audioPath: recovered,
+              fileSize: recoveredFile.existsSync() ? recoveredFile.lengthSync() : rec.fileSize,
+            );
+            updated = true;
+          }
+        }
       }
     }
     if (updated) {
@@ -394,26 +414,28 @@ class LocalNoteRepository implements NoteRepository {
           if (await audioFile.exists()) {
             await audioFile.delete();
           }
+          final parentDir = audioFile.parent;
+          if (await parentDir.exists() && await parentDir.list().isEmpty) {
+            await parentDir.delete(recursive: true);
+          }
         } catch (_) {}
       }
     }
     _voiceRecordings.removeWhere((r) => r.voiceNoteId == id);
     _emitRecordings();
 
-    // If child recordings were in a dedicated folder, clean it up
+    // Clean up dedicated note audio directory if it exists
     try {
-      if (childRecordings.isNotEmpty) {
-        for (final rec in childRecordings) {
-          if (rec.audioPath.isNotEmpty) {
-            final parentDir = File(rec.audioPath).parent;
-            if (await parentDir.exists()) {
-              final remaining = await parentDir.list().isEmpty;
-              if (remaining) {
-                await parentDir.delete(recursive: true);
-              }
-            }
-            break;
-          }
+      String? baseDir;
+      if (_directoryProvider != null) {
+        baseDir = await _directoryProvider!();
+      } else if (_customStoragePath != null) {
+        baseDir = File(_customStoragePath!).parent.path;
+      }
+      if (baseDir != null) {
+        final noteAudioDir = Directory('$baseDir/voice_notes/$id');
+        if (await noteAudioDir.exists()) {
+          await noteAudioDir.delete(recursive: true);
         }
       }
     } catch (_) {}
@@ -523,7 +545,15 @@ class LocalNoteRepository implements NoteRepository {
       final rec = _voiceRecordings[index];
       if (rec.audioPath.isNotEmpty) {
         try {
-          final file = File(rec.audioPath);
+          String? baseDir;
+          if (_directoryProvider != null) {
+            baseDir = await _directoryProvider!();
+          } else if (_customStoragePath != null) {
+            baseDir = File(_customStoragePath!).parent.path;
+          }
+          final resolved = await AudioHelper.resolveAudioPath(rec.audioPath, baseDir);
+          final filePath = resolved ?? rec.audioPath;
+          final file = File(filePath);
           if (await file.exists()) {
             await file.delete();
           }
