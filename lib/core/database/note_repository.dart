@@ -1,6 +1,10 @@
+import 'dart:io';
 import '../../shared/models/note_entity.dart';
 import '../../shared/models/folder_entity.dart';
 import '../../shared/models/voice_recording_entity.dart';
+import '../../shared/models/backup_models.dart';
+
+export '../../shared/models/backup_models.dart';
 
 abstract class NoteRepository {
   /// Stream of all active or archived notes
@@ -47,4 +51,26 @@ abstract class NoteRepository {
 
   /// Toggle the completion state of a voice recording (Checklist mode)
   Future<void> toggleVoiceRecordingCompletion(String recordingId);
+
+  /// Export complete backup payload
+  Future<Map<String, dynamic>> exportBackupPayload({bool includeAudio = true});
+
+  /// Create a backup file in the local backups directory
+  Future<File> createBackupFile({bool includeAudio = true, String? customName});
+
+  /// List local backup files found in the backups directory
+  Future<List<File>> listLocalBackups();
+
+  /// Inspect a backup file or JSON string to get preview information
+  Future<BackupPreview> inspectBackup(String jsonStringOrFilePath);
+
+  /// Restore notes, folders, and recordings from backup data
+  Future<void> restoreBackup(
+    String jsonStringOrFilePath, {
+    required RestoreStrategy strategy,
+  });
+
+  /// Delete a local backup file
+  Future<void> deleteBackupFile(String filePath);
 }
+

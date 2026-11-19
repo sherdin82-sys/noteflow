@@ -8,6 +8,7 @@ import '../../lib/core/utils/date_formatter.dart';
 import '../../lib/core/utils/audio_helper.dart';
 import '../../lib/core/database/local_note_repository.dart';
 import '../../lib/shared/models/voice_recording_entity.dart';
+import '../../lib/shared/models/backup_models.dart';
 
 void expect(bool condition, String message) {
   if (!condition) {
@@ -1543,7 +1544,156 @@ Future<void> main() async {
     twoStageTestDir.deleteSync(recursive: true);
   }
 
-  stdout.writeln('ALL NOTEFLOW TESTS PASSED! (326/326 Assertions) ✓');
+  // --- Suite 28: Backup & Restore Engine ---
+  final backupTestDir = Directory.systemTemp.createTempSync('noteflow_backup_test_');
+  final backupRepoDir = Directory('${backupTestDir.path}/app_docs');
+  backupRepoDir.createSync(recursive: true);
+
+  final backupSourceRepo = LocalNoteRepository(
+    seedDemoData: true,
+    enableDiskPersistence: true,
+    directoryProvider: () async => backupRepoDir.path,
+  );
+  await backupSourceRepo.init();
+
+  // 1. Export backup payload with and without audio
+  final payloadWithAudio = await backupSourceRepo.exportBackupPayload(includeAudio: true);
+  expect(payloadWithAudio['app'] == 'NoteFlow', 'Test 28.1: Payload app signature is NoteFlow');
+  expect(payloadWithAudio['version'] == 1, 'Test 28.1: Payload version is 1');
+  final notesInPayload = payloadWithAudio['notes'] as List;
+  expect(notesInPayload.isNotEmpty, 'Test 28.1: Payload contains seeded notes');
+  final audioPayloads = payloadWithAudio['audio_payloads'] as Map;
+  expect(audioPayloads.isNotEmpty, 'Test 28.1: Audio payloads included when includeAudio is true');
+
+  final payloadNoAudio = await backupSourceRepo.exportBackupPayload(includeAudio: false);
+  final noAudioPayloads = payloadNoAudio['audio_payloads'] as Map;
+  expect(noAudioPayloads.isEmpty, 'Test 28.2: Audio payloads empty when includeAudio is false');
+
+  // 2. Create backup file with default timestamp and custom name
+  final defaultBackupFile = await backupSourceRepo.createBackupFile(includeAudio: true);
+  expect(defaultBackupFile.existsSync(), 'Test 28.3: Default timestamp backup file created');
+  expect(defaultBackupFile.path.endsWith('.noteflow'), 'Test 28.3: Default backup has .noteflow extension');
+
+  final customBackupFile = await backupSourceRepo.createBackupFile(
+    includeAudio: true,
+    customName: 'my_safe_backup',
+  );
+  expect(customBackupFile.existsSync(), 'Test 28.4: Custom named backup created');
+  expect(customBackupFile.path.endsWith('my_safe_backup.noteflow'), 'Test 28.4: Custom name appended with .noteflow');
+
+  // 3. List local backups
+  final backupFiles = await backupSourceRepo.listLocalBackups();
+  expect(backupFiles.length >= 2, 'Test 28.5: listLocalBackups returns at least 2 files');
+  expect(backupFiles.any((f) => f.path == customBackupFile.path), 'Test 28.5: Custom file found in backup list');
+
+  // 4. Inspect backup preview
+  final preview = await backupSourceRepo.inspectBackup(customBackupFile.path);
+  expect(preview.appName == 'NoteFlow', 'Test 28.6: Preview app name matches');
+  expect(preview.notesCount == notesInPayload.length, 'Test 28.6: Preview notes count matches');
+  expect(preview.hasAudio == true, 'Test 28.6: Preview hasAudio is true');
+  expect(preview.formattedSize.isNotEmpty, 'Test 28.6: Preview formatted size generated');
+
+  final rawJsonPreview = await backupSourceRepo.inspectBackup(jsonEncode(payloadWithAudio));
+  expect(rawJsonPreview.notesCount == notesInPayload.length, 'Test 28.7: Inspect from raw JSON string');
+
+  bool caughtCorrupt = false;
+  try {
+    await backupSourceRepo.inspectBackup('{"invalid": true}');
+  } catch (_) {
+    caughtCorrupt = true;
+  }
+  expect(caughtCorrupt == true, 'Test 28.8: Corrupt/foreign JSON throws format exception');
+
+  // 5. Restore with Replace Strategy
+  final restoreTargetDir = Directory('${backupTestDir.path}/restore_target_docs');
+  restoreTargetDir.createSync(recursive: true);
+  final restoreRepo = LocalNoteRepository(
+    seedDemoData: false,
+    enableDiskPersistence: true,
+    directoryProvider: () async => restoreTargetDir.path,
+  );
+  await restoreRepo.init();
+
+  final initialTargetNotes = await restoreRepo.watchNotes().first;
+  expect(initialTargetNotes.isEmpty, 'Test 28.9: Target repo is initially empty');
+
+  await restoreRepo.saveNote(
+    NoteEntity(
+      id: 'dummy-note-wipe',
+      title: 'Dummy to be wiped',
+      content: 'This will be replaced',
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    ),
+  );
+  expect((await restoreRepo.watchNotes().first).length == 1, 'Test 28.10: Dummy note saved');
+
+  await restoreRepo.restoreBackup(customBackupFile.path, strategy: RestoreStrategy.replace);
+  final replacedNotes = await restoreRepo.watchNotes().first;
+  expect(replacedNotes.any((n) => n.id == 'dummy-note-wipe') == false, 'Test 28.11: Dummy note was wiped in replace strategy');
+  expect(replacedNotes.length == notesInPayload.length, 'Test 28.11: Restored notes count matches backup');
+
+  // Verify audio extraction on restore
+  final restoredBackupRecordings = await restoreRepo.getVoiceRecordings('note-meeting-sync');
+  expect(restoredBackupRecordings.isNotEmpty, 'Test 28.12: Voice recordings restored');
+  for (final rec in restoredBackupRecordings) {
+    expect(File(rec.audioPath).existsSync(), 'Test 28.12: Restored recording audio file exists on disk: ${rec.audioPath}');
+  }
+
+  // 6. Restore with Merge Strategy
+  final mergeUniqueNote = NoteEntity(
+    id: 'note-merge-keeper',
+    title: 'Keep Me In Merge',
+    content: 'Unique note that should survive merge',
+    createdAt: DateTime.now(),
+    updatedAt: DateTime.now(),
+  );
+  await restoreRepo.saveNote(mergeUniqueNote);
+
+  await restoreRepo.restoreBackup(customBackupFile.path, strategy: RestoreStrategy.merge);
+  final mergedNotes = await restoreRepo.watchNotes().first;
+  expect(mergedNotes.any((n) => n.id == 'note-merge-keeper') == true, 'Test 28.13: Unique note survived merge restore');
+  expect(mergedNotes.length == notesInPayload.length + 1, 'Test 28.13: Merged notes count is backup count + 1');
+
+  // 7. Delete backup file
+  await backupSourceRepo.deleteBackupFile(customBackupFile.path);
+  expect(customBackupFile.existsSync() == false, 'Test 28.14: Backup file deleted from disk');
+  final remainingBackups = await backupSourceRepo.listLocalBackups();
+  expect(remainingBackups.any((f) => f.path == customBackupFile.path) == false, 'Test 28.14: Deleted backup removed from listLocalBackups');
+
+  // 8. Compressed Backup Creation & Restoration
+  final compressedFile = await backupSourceRepo.backupService.createBackupArchive(
+    includeAudio: true,
+    customName: 'compressed_backup',
+    compress: true,
+  );
+  expect(compressedFile.existsSync(), 'Test 28.15: Compressed backup created');
+  final compressedPreview = await backupSourceRepo.inspectBackup(compressedFile.path);
+  expect(compressedPreview.isZipArchive == true, 'Test 28.15: Compressed preview has isZipArchive == true');
+  expect(compressedPreview.notesCount == notesInPayload.length, 'Test 28.15: Compressed notes count matches');
+
+  // 9. Tampered Compressed Archive Detection
+  final corruptBytes = List<int>.from(await compressedFile.readAsBytes());
+  for (int i = 20; i < 30 && i < corruptBytes.length; i++) {
+    corruptBytes[i] = (corruptBytes[i] + 1) % 256;
+  }
+  final corruptFile = File('${backupTestDir.path}/corrupt_compressed.noteflow');
+  corruptFile.writeAsBytesSync(corruptBytes);
+
+  bool caughtCorruptGzip = false;
+  try {
+    await backupSourceRepo.restoreBackup(corruptFile.path, strategy: RestoreStrategy.replace);
+  } catch (_) {
+    caughtCorruptGzip = true;
+  }
+  expect(caughtCorruptGzip == true, 'Test 28.16: Tampered compressed backup is detected and rejected');
+
+  // Clean up test directories
+  if (backupTestDir.existsSync()) {
+    backupTestDir.deleteSync(recursive: true);
+  }
+
+  stdout.writeln('ALL NOTEFLOW TESTS PASSED! (358/358 Assertions) ✓');
 }
 
 enum _TestPlaybackStatus {

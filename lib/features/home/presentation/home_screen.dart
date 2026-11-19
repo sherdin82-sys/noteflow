@@ -17,6 +17,7 @@ import '../../editor/presentation/note_editor_screen.dart';
 import '../../voice_notes/presentation/voice_note_editor_screen.dart';
 import '../../archive/presentation/archive_screen.dart';
 import '../../folders/presentation/folders_screen.dart';
+import '../../backup/presentation/backup_restore_screen.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -148,6 +149,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               onOpenArchive: () => Navigator.push(
                 context,
                 MaterialPageRoute(builder: (_) => const ArchiveScreen()),
+              ),
+              onOpenBackup: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const BackupRestoreScreen()),
               ),
               onSortChanged: (sort) => filterNotifier.setSortOrder(sort),
             ),

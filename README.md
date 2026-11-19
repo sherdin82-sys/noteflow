@@ -6,7 +6,7 @@ A premium, modern, offline-first Android notepad application built with Flutter,
 - **App Name**: NoteFlow
 - **Package ID**: `com.noteflow.app`
 - **Platform**: Android
-- **Architecture**: Clean Architecture with feature modules (`home`, `editor`, `folders`, `archive`)
+- **Architecture**: Clean Architecture with feature modules (`home`, `editor`, `folders`, `archive`, `backup`)
 - **Offline Persistence**: Drift + SQLite (`app_database.dart` & `local_note_repository.dart`)
 
 ---

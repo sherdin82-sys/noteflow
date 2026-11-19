@@ -11,6 +11,7 @@ class HomeHeader extends StatelessWidget {
   final VoidCallback onToggleTheme;
   final VoidCallback onOpenFolders;
   final VoidCallback onOpenArchive;
+  final VoidCallback onOpenBackup;
   final ValueChanged<NoteSortOrder> onSortChanged;
   final NoteSortOrder currentSort;
   final bool isDark;
@@ -23,6 +24,7 @@ class HomeHeader extends StatelessWidget {
     required this.onToggleTheme,
     required this.onOpenFolders,
     required this.onOpenArchive,
+    required this.onOpenBackup,
     required this.onSortChanged,
     required this.currentSort,
     required this.isDark,
@@ -111,6 +113,20 @@ class HomeHeader extends StatelessWidget {
                     ),
                     tooltip: 'Archived Notes',
                     onPressed: onOpenArchive,
+                  ),
+                  const SizedBox(width: 2),
+                  // Backup & Restore Screen
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.all(6),
+                    constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                    icon: Icon(
+                      Icons.settings_backup_restore_rounded,
+                      size: 20,
+                      color: secondaryTextColor,
+                    ),
+                    tooltip: 'Backup & Restore',
+                    onPressed: onOpenBackup,
                   ),
                   const SizedBox(width: 2),
                   // Theme Mode Switcher

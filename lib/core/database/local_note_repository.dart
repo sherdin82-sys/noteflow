@@ -6,6 +6,8 @@ import '../../shared/models/folder_entity.dart';
 import '../../shared/models/voice_recording_entity.dart';
 import '../utils/audio_helper.dart';
 import 'note_repository.dart';
+import '../../features/backup/services/backup_service.dart';
+import '../../features/backup/services/restore_service.dart';
 
 class LocalNoteRepository implements NoteRepository {
   final List<NoteEntity> _notes = [];
@@ -587,6 +589,178 @@ class LocalNoteRepository implements NoteRepository {
       _emitRecordings();
       await _saveToDisk();
     }
+  }
+
+  BackupService get backupService => BackupService(repository: this);
+  RestoreService get restoreService => RestoreService(repository: this);
+
+  Future<String?> getBaseDirectory() async {
+    if (_directoryProvider != null) {
+      try {
+        return await _directoryProvider!();
+      } catch (_) {}
+    } else if (_customStoragePath != null) {
+      return File(_customStoragePath!).parent.path;
+    }
+    return null;
+  }
+
+  Future<Directory> getBackupDirectory() async {
+    return backupService.getBackupDirectory();
+  }
+
+  List<NoteEntity> getAllNotes() => List.unmodifiable(_notes);
+  List<FolderEntity> getAllFolders() => List.unmodifiable(_folders);
+  List<VoiceRecordingEntity> getAllVoiceRecordings() =>
+      List.unmodifiable(_voiceRecordings);
+
+  Future<void> replaceAllData({
+    required List<FolderEntity> folders,
+    required List<NoteEntity> notes,
+    required List<VoiceRecordingEntity> voiceRecordings,
+    String? themeMode,
+  }) async {
+    if (themeMode != null) _themeMode = themeMode;
+    _folders.clear();
+    _folders.addAll(folders);
+    _notes.clear();
+    _notes.addAll(notes);
+    _voiceRecordings.clear();
+    _voiceRecordings.addAll(voiceRecordings);
+    _emitFolders();
+    _emitNotes();
+    _emitRecordings();
+    await _saveToDisk();
+  }
+
+  Future<void> mergeAllData({
+    required List<FolderEntity> folders,
+    required List<NoteEntity> notes,
+    required List<VoiceRecordingEntity> voiceRecordings,
+    String? themeMode,
+  }) async {
+    if (themeMode != null) _themeMode = themeMode;
+
+    for (final bf in folders) {
+      final idx = _folders.indexWhere((f) => f.id == bf.id);
+      if (idx >= 0) {
+        _folders[idx] = bf;
+      } else {
+        _folders.add(bf);
+      }
+    }
+
+    for (final br in voiceRecordings) {
+      final idx = _voiceRecordings.indexWhere((r) => r.id == br.id);
+      if (idx >= 0) {
+        _voiceRecordings[idx] = br;
+      } else {
+        _voiceRecordings.add(br);
+      }
+    }
+
+    for (final bn in notes) {
+      final idx = _notes.indexWhere((n) => n.id == bn.id);
+      if (idx >= 0) {
+        _notes[idx] = bn;
+      } else {
+        _notes.add(bn);
+      }
+    }
+
+    _emitFolders();
+    _emitNotes();
+    _emitRecordings();
+    await _saveToDisk();
+  }
+
+  @override
+  Future<Map<String, dynamic>> exportBackupPayload({bool includeAudio = true}) async {
+    final now = DateTime.now();
+    final Map<String, String> audioPayloads = {};
+    int audioFilesCount = 0;
+
+    if (includeAudio) {
+      final baseDir = await getBaseDirectory();
+      for (final rec in _voiceRecordings) {
+        if (rec.audioPath.isNotEmpty) {
+          try {
+            final resolved = await AudioHelper.resolveAudioPath(rec.audioPath, baseDir);
+            final targetPath = resolved ?? rec.audioPath;
+            final file = File(targetPath);
+            if (await file.exists() && await file.length() > 0) {
+              final bytes = await file.readAsBytes();
+              audioPayloads[rec.id] = base64Encode(bytes);
+              audioFilesCount++;
+            }
+          } catch (_) {}
+        }
+      }
+      for (final note in _notes) {
+        if (note.audioPath != null && note.audioPath!.isNotEmpty) {
+          try {
+            final resolved = await AudioHelper.resolveAudioPath(note.audioPath!, baseDir);
+            final targetPath = resolved ?? note.audioPath!;
+            final file = File(targetPath);
+            if (await file.exists() && await file.length() > 0) {
+              final bytes = await file.readAsBytes();
+              audioPayloads[note.id] = base64Encode(bytes);
+              audioFilesCount++;
+            }
+          } catch (_) {}
+        }
+      }
+    }
+
+    return {
+      'app': 'NoteFlow',
+      'version': 1,
+      'backup_version': 1,
+      'created_at': now.toIso8601String(),
+      'theme_mode': _themeMode,
+      'stats': {
+        'notes_count': _notes.length,
+        'folders_count': _folders.length,
+        'recordings_count': _voiceRecordings.length,
+        'has_audio': audioFilesCount > 0,
+        'audio_files_count': audioFilesCount,
+      },
+      'folders': _folders.map((f) => f.toMap()).toList(),
+      'notes': _notes.map((n) => n.toMap()).toList(),
+      'voice_recordings': _voiceRecordings.map((r) => r.toMap()).toList(),
+      'audio_payloads': audioPayloads,
+    };
+  }
+
+  @override
+  Future<File> createBackupFile({bool includeAudio = true, String? customName}) async {
+    return backupService.createBackupArchive(
+      includeAudio: includeAudio,
+      customName: customName,
+    );
+  }
+
+  @override
+  Future<List<File>> listLocalBackups() async {
+    return backupService.listLocalBackups();
+  }
+
+  @override
+  Future<BackupPreview> inspectBackup(String jsonStringOrFilePath) async {
+    return restoreService.inspectArchive(jsonStringOrFilePath);
+  }
+
+  @override
+  Future<void> restoreBackup(
+    String jsonStringOrFilePath, {
+    required RestoreStrategy strategy,
+  }) async {
+    await restoreService.restoreArchive(jsonStringOrFilePath, strategy: strategy);
+  }
+
+  @override
+  Future<void> deleteBackupFile(String filePath) async {
+    await backupService.deleteBackupFile(filePath);
   }
 
   void dispose() {
