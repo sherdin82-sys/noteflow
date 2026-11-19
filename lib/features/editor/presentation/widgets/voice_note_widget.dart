@@ -121,6 +121,24 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget> with SingleTickerProv
   void _initPlayer(String path) {
     _disposePlayer();
     _audioPlayer = AudioPlayer();
+    _audioPlayer!.setAudioContext(const AudioContext(
+      android: AudioContextAndroid(
+        isSpeakerphoneOn: true,
+        stayAwake: true,
+        contentType: AndroidContentType.music,
+        usageType: AndroidUsageType.media,
+        audioFocus: AndroidAudioFocus.gain,
+        audioMode: AndroidAudioMode.normal,
+      ),
+      iOS: AudioContextIOS(
+        category: AVAudioSessionCategory.playback,
+        options: {
+          AVAudioSessionOptions.defaultToSpeaker,
+        },
+      ),
+    )).catchError((_) {});
+    _audioPlayer!.setReleaseMode(ReleaseMode.stop).catchError((_) {});
+    _audioPlayer!.setVolume(1.0).catchError((_) {});
 
     _stateSub = _audioPlayer!.onPlayerStateChanged.listen((state) {
       if (mounted) {
@@ -155,7 +173,9 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget> with SingleTickerProv
       }
     });
 
-    _audioPlayer!.setSource(DeviceFileSource(path)).catchError((_) {});
+    if (File(path).existsSync()) {
+      _audioPlayer!.setSource(DeviceFileSource(path)).catchError((_) {});
+    }
   }
 
   void _disposePlayer() {
@@ -173,6 +193,14 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget> with SingleTickerProv
     if (_playerState == PlayerState.playing) {
       await _audioPlayer!.pause();
     } else {
+      if (!File(widget.audioPath!).existsSync()) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Audio memo file not found.')),
+          );
+        }
+        return;
+      }
       if (_playerState == PlayerState.completed) {
         await _audioPlayer!.seek(Duration.zero);
       }

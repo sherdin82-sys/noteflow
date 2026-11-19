@@ -97,9 +97,14 @@ class VoiceRecordingTile extends ConsumerWidget {
     final playbackState = ref.watch(voicePlayerProvider);
     final isCurrent = playbackState.activeRecordingId == recording.id;
     final isPlaying = isCurrent && playbackState.isPlaying;
+    final isLoading = isCurrent && playbackState.isLoading;
+    final isError = isCurrent && playbackState.isError;
 
-    // Durations
-    final totalDuration = Duration(milliseconds: recording.durationMs);
+    // Durations: Use actual playback duration if available from native player
+    final effectiveDurationMs = (isCurrent && playbackState.duration.inMilliseconds > 0)
+        ? playbackState.duration.inMilliseconds
+        : recording.durationMs;
+    final totalDuration = Duration(milliseconds: effectiveDurationMs);
     final currentPos = isCurrent ? playbackState.position : Duration.zero;
 
     return Container(
@@ -156,10 +161,19 @@ class VoiceRecordingTile extends ConsumerWidget {
                     padding: const EdgeInsets.all(8),
                     minimumSize: const Size(36, 36),
                   ),
-                  icon: Icon(
-                    isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                    size: 20,
-                  ),
+                  icon: isLoading
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: AppColors.primary,
+                          ),
+                        )
+                      : Icon(
+                          isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                          size: 20,
+                        ),
                   onPressed: () {
                     ref.read(voicePlayerProvider.notifier).playRecording(
                           recording.id,
@@ -262,54 +276,72 @@ class VoiceRecordingTile extends ConsumerWidget {
 
             // Playback Seek Slider & Timestamps (shown when active/playing or selected)
             if (isCurrent) ...[
-              const SizedBox(height: 4),
-              SliderTheme(
-                data: SliderTheme.of(context).copyWith(
-                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
-                  overlayShape: const RoundSliderOverlayShape(overlayRadius: 10),
-                  trackHeight: 3,
-                  activeTrackColor: AppColors.primary,
-                  inactiveTrackColor: isDark ? Colors.white12 : Colors.black12,
-                  thumbColor: AppColors.primary,
-                ),
-                child: Slider(
-                  value: currentPos.inMilliseconds
-                      .clamp(0, totalDuration.inMilliseconds)
-                      .toDouble(),
-                  max: totalDuration.inMilliseconds > 0
-                      ? totalDuration.inMilliseconds.toDouble()
-                      : 1.0,
-                  onChanged: (val) {
-                    ref
-                        .read(voicePlayerProvider.notifier)
-                        .seek(Duration(milliseconds: val.toInt()));
-                  },
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 10),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      AudioHelper.formatDuration(currentPos),
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontFamily: 'monospace',
-                        color: secondaryTextColor,
+              if (isError) ...[
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.error_outline_rounded, size: 14, color: AppColors.danger),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          playbackState.errorMessage ?? 'Audio playback error occurred',
+                          style: const TextStyle(fontSize: 11, color: AppColors.danger),
+                        ),
                       ),
-                    ),
-                    Text(
-                      AudioHelper.formatDuration(totalDuration),
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontFamily: 'monospace',
-                        color: secondaryTextColor,
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
+              ] else ...[
+                const SizedBox(height: 4),
+                SliderTheme(
+                  data: SliderTheme.of(context).copyWith(
+                    thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
+                    overlayShape: const RoundSliderOverlayShape(overlayRadius: 10),
+                    trackHeight: 3,
+                    activeTrackColor: AppColors.primary,
+                    inactiveTrackColor: isDark ? Colors.white12 : Colors.black12,
+                    thumbColor: AppColors.primary,
+                  ),
+                  child: Slider(
+                    value: currentPos.inMilliseconds
+                        .clamp(0, totalDuration.inMilliseconds)
+                        .toDouble(),
+                    max: totalDuration.inMilliseconds > 0
+                        ? totalDuration.inMilliseconds.toDouble()
+                        : 1.0,
+                    onChanged: (val) {
+                      ref
+                          .read(voicePlayerProvider.notifier)
+                          .seek(Duration(milliseconds: val.toInt()));
+                    },
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        AudioHelper.formatDuration(currentPos),
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontFamily: 'monospace',
+                          color: secondaryTextColor,
+                        ),
+                      ),
+                      Text(
+                        AudioHelper.formatDuration(totalDuration),
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontFamily: 'monospace',
+                          color: secondaryTextColor,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ],
           ],
         ),

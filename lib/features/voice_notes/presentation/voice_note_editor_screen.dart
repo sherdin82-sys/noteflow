@@ -96,6 +96,7 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
     _autoSaveTimer?.cancel();
     _titleController.dispose();
     _titleFocusNode.dispose();
+    ref.read(voicePlayerProvider.notifier).stop();
     super.dispose();
   }
 

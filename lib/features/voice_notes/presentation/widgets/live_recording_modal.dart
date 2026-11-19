@@ -287,9 +287,32 @@ class _LiveRecordingModalState extends State<LiveRecordingModal> with SingleTick
       }
 
       final file = File(finalPath);
+      // Ensure file handles are flushed by the Android media subsystem
+      int attempts = 0;
+      while (attempts < 10) {
+        if (await file.exists() && await file.length() > 0) {
+          break;
+        }
+        await Future.delayed(const Duration(milliseconds: 50));
+        attempts++;
+      }
+
       int fileSize = 0;
       if (await file.exists()) {
         fileSize = await file.length();
+      }
+
+      if (fileSize == 0) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Audio recording is empty (0 bytes). Please try recording again.'),
+              backgroundColor: AppColors.danger,
+            ),
+          );
+          Navigator.pop(context, null);
+        }
+        return;
       }
 
       // If recording duration is 0, provide at least 1 second fallback if file was created
