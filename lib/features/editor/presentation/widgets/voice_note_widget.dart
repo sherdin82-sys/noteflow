@@ -121,8 +121,8 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget> with SingleTickerProv
   void _initPlayer(String path) {
     _disposePlayer();
     _audioPlayer = AudioPlayer();
-    _audioPlayer!.setAudioContext(const AudioContext(
-      android: AudioContextAndroid(
+    _audioPlayer!.setAudioContext(AudioContext(
+      android: const AudioContextAndroid(
         isSpeakerphoneOn: true,
         stayAwake: true,
         contentType: AndroidContentType.music,
@@ -132,7 +132,7 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget> with SingleTickerProv
       ),
       iOS: AudioContextIOS(
         category: AVAudioSessionCategory.playback,
-        options: {
+        options: const {
           AVAudioSessionOptions.defaultToSpeaker,
         },
       ),

@@ -1230,7 +1230,7 @@ Future<void> main() async {
   expect(resolvedDirect == validAudioFile.path, 'Test 22: Direct file path resolved when file exists');
 
   // Relative / sandbox migrated path resolution
-  final migratedPath = '/data/user/0/old.package.name/app_flutter/voice_notes/vn-1/rec-1.m4a';
+  const migratedPath = '/data/user/0/old.package.name/app_flutter/voice_notes/vn-1/rec-1.m4a';
   final resolvedMigrated = await AudioHelper.resolveAudioPath(migratedPath, testAudioDir.path);
   expect(resolvedMigrated == validAudioFile.path, 'Test 22: Migrated path resolved against base directory');
 
@@ -1304,7 +1304,7 @@ Future<void> main() async {
   simState = const _TestVoicePlaybackState(
     activeRecordingId: 'rec-2',
     status: _TestPlaybackStatus.playing,
-    duration: const Duration(seconds: 30),
+    duration: Duration(seconds: 30),
   );
   expect(simState.isRecordingActive('rec-1') == false, 'Test 22: Recording 1 is no longer active');
   expect(simState.isRecordingPlaying('rec-1') == false, 'Test 22: Recording 1 UI is completely reset');
