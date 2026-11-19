@@ -39,6 +39,11 @@ jobs:
       - name: Install Dependencies
         run: flutter pub get
 
+      - name: Patch Plugins for AGP 9 Compatibility
+        run: |
+          find ~/.pub-cache/hosted/pub.dev/ -name "build.gradle" -exec sed -i "s/apply plugin: 'kotlin-android'/\/\/ apply plugin: 'kotlin-android'/g" {} + || true
+          find ~/.pub-cache/hosted/pub.dev/ -name "build.gradle" -exec sed -i 's/apply plugin: "kotlin-android"/\/\/ apply plugin: "kotlin-android"/g' {} + || true
+
       - name: Run Flutter Analyzer
         run: flutter analyze --no-fatal-infos
 

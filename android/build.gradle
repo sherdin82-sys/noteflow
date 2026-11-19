@@ -6,8 +6,44 @@ allprojects {
 }
 
 rootProject.buildDir = "../build"
-subprojects {
+subprojects { subproject ->
     project.buildDir = "${rootProject.buildDir}/${project.name}"
+
+    // Patch legacy Flutter plugins that still apply kotlin-android or miss compileSdk for AGP 9 compatibility
+    def pluginGradleFile = file("${subproject.projectDir}/build.gradle")
+    if (pluginGradleFile.exists()) {
+        try {
+            def content = pluginGradleFile.text
+            def changed = false
+            if (content.contains("apply plugin: 'kotlin-android'")) {
+                content = content.replace("apply plugin: 'kotlin-android'", "// apply plugin: 'kotlin-android'")
+                changed = true
+            }
+            if (content.contains('apply plugin: "kotlin-android"')) {
+                content = content.replace('apply plugin: "kotlin-android"', '// apply plugin: "kotlin-android"')
+                changed = true
+            }
+            if (content.contains("android {") && !content.contains("compileSdk")) {
+                content = content.replace("android {", "android {\n    compileSdk 35")
+                changed = true
+            }
+            if (changed) {
+                pluginGradleFile.text = content
+            }
+        } catch (ignored) {
+            // Safe fallback
+        }
+    }
+
+    afterEvaluate { project ->
+        if (project.hasProperty("android")) {
+            project.android {
+                if (compileSdk == null) {
+                    compileSdk 35
+                }
+            }
+        }
+    }
 }
 
 tasks.register("clean", Delete) {
