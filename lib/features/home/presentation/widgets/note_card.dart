@@ -86,7 +86,7 @@ class NoteCard extends ConsumerWidget {
                   ),
                   if (note.isPinned) ...[
                     const SizedBox(width: 8),
-                    Icon(
+                    const Icon(
                       Icons.push_pin,
                       size: 16,
                       color: AppColors.primary,

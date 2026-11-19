@@ -57,6 +57,15 @@ class AppTypography {
         color: color,
       );
 
+  static TextStyle bodySmall(Color color) => TextStyle(
+        fontFamily: fontFamily,
+        fontSize: 12,
+        fontWeight: FontWeight.w400,
+        letterSpacing: 0,
+        height: 1.4,
+        color: color,
+      );
+
   static TextStyle labelSmall(Color color) => TextStyle(
         fontFamily: fontFamily,
         fontSize: 11,

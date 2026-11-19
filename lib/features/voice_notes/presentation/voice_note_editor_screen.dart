@@ -8,7 +8,7 @@ import '../../../../core/database/database_provider.dart';
 import '../../../../shared/models/note_entity.dart';
 import '../../../../shared/models/folder_entity.dart';
 import '../../../../shared/models/voice_recording_entity.dart';
-import '../../../editor/presentation/widgets/color_tint_picker.dart';
+import '../../editor/presentation/widgets/color_tint_picker.dart';
 import 'controllers/voice_player_controller.dart';
 import 'widgets/live_recording_modal.dart';
 import 'widgets/voice_recording_tile.dart';
@@ -369,11 +369,9 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
     final isChecklistMode = _currentNote.voiceMode == 'checklist';
 
     // Background tint color
-    final tintColor = _currentNote.colorIndex > 0 &&
-            _currentNote.colorIndex < AppColors.cardTints.length
-        ? (isDark
-            ? AppColors.cardTints[_currentNote.colorIndex].withAlpha(35)
-            : AppColors.cardTints[_currentNote.colorIndex].withAlpha(50))
+    final colorList = isDark ? AppColors.darkNoteColors : AppColors.lightNoteColors;
+    final tintColor = _currentNote.colorIndex < colorList.length
+        ? colorList[_currentNote.colorIndex]
         : (isDark ? AppColors.darkBackground : AppColors.lightBackground);
 
     return PopScope(
@@ -526,7 +524,7 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
                         onSelectionChanged: (Set<String> newSelection) {
                           _toggleMode(newSelection.first);
                         },
-                        style: ButtonStyle(
+                        style: const ButtonStyle(
                           visualDensity: VisualDensity.compact,
                           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         ),
