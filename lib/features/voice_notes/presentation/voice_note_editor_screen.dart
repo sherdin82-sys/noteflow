@@ -328,9 +328,22 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
   }
 
   Future<void> _openRecordingModal(int currentCount) async {
-    // If note is not saved to repository yet, make sure it is persisted before adding child recordings
+    // 1. Stop any currently playing audio so it does not conflict with recording hardware
+    ref.read(voicePlayerProvider.notifier).stop();
+
+    // 2. If note is not saved to repository yet, persist it now so child SQLite foreign key is valid
     if (!_isNotePersisted) {
-      await _saveNoteImmediate();
+      final title = _titleController.text.trim();
+      final noteToPersist = _currentNote.copyWith(
+        title: title.isEmpty ? 'Voice Note' : title,
+        updatedAt: DateTime.now(),
+      );
+      _currentNote = noteToPersist;
+      _isNotePersisted = true;
+      if (title.isEmpty) {
+        _titleController.text = 'Voice Note';
+      }
+      await ref.read(noteRepositoryProvider).saveNote(noteToPersist);
     }
 
     if (!mounted) return;

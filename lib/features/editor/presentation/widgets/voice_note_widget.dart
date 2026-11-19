@@ -109,6 +109,9 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget> with SingleTickerProv
   void dispose() {
     _pulseController.dispose();
     _recordingTimer?.cancel();
+    if (_isRecording && _audioRecorder != null) {
+      _audioRecorder!.cancel().catchError((_) {});
+    }
     _audioRecorder?.dispose();
     _disposePlayer();
     super.dispose();
@@ -221,13 +224,59 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget> with SingleTickerProv
         await audioDir.create(recursive: true);
       }
 
+      // Ensure any lingering session is cleanly ended
+      if (await _audioRecorder!.isRecording()) {
+        try {
+          await _audioRecorder!.stop();
+        } catch (_) {}
+      }
+
       final fileName = 'voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
       _tempAudioPath = '${audioDir.path}/$fileName';
 
-      await _audioRecorder!.start(
-        const RecordConfig(encoder: AudioEncoder.aacLc),
-        path: _tempAudioPath!,
-      );
+      // Multi-tier robust hardware codec configuration
+      bool started = false;
+      try {
+        await _audioRecorder!.start(
+          const RecordConfig(
+            encoder: AudioEncoder.aacLc,
+            numChannels: 1,
+            bitRate: 128000,
+            sampleRate: 44100,
+          ),
+          path: _tempAudioPath!,
+        );
+        started = true;
+      } catch (_) {
+        try {
+          await _audioRecorder!.start(
+            const RecordConfig(
+              encoder: AudioEncoder.aacLc,
+              numChannels: 1,
+            ),
+            path: _tempAudioPath!,
+          );
+          started = true;
+        } catch (_) {
+          try {
+            await _audioRecorder!.start(
+              const RecordConfig(numChannels: 1),
+              path: _tempAudioPath!,
+            );
+            started = true;
+          } catch (_) {
+            await _audioRecorder!.start(
+              const RecordConfig(),
+              path: _tempAudioPath!,
+            );
+            started = true;
+          }
+        }
+      }
+
+      if (!started) {
+        throw Exception('Audio recorder could not be initialized on this device.');
+      }
 
       setState(() {
         _isRecording = true;

@@ -37,6 +37,9 @@ class _LiveRecordingModalState extends State<LiveRecordingModal> with SingleTick
   bool _isRecording = false;
   bool _isPaused = false;
   bool _isSaving = false;
+  bool _hasPermission = true;
+  bool _isInitializing = true;
+  String? _initError;
   String? _currentRecordingPath;
   String? _recordingId;
 
@@ -55,7 +58,11 @@ class _LiveRecordingModalState extends State<LiveRecordingModal> with SingleTick
       text: widget.defaultTitle ?? 'Recording ${widget.nextSortOrder + 1}',
     );
 
-    _startRecording();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _startRecording();
+      }
+    });
   }
 
   @override
@@ -64,25 +71,50 @@ class _LiveRecordingModalState extends State<LiveRecordingModal> with SingleTick
     _amplitudeTimer?.cancel();
     _pulseController.dispose();
     _titleController.dispose();
+    if (_isRecording) {
+      _recorder.cancel().catchError((_) {});
+      if (_currentRecordingPath != null) {
+        final f = File(_currentRecordingPath!);
+        f.exists().then((exists) {
+          if (exists) f.delete().catchError((_) {});
+        });
+      }
+    }
     _recorder.dispose();
     super.dispose();
   }
 
   Future<void> _startRecording() async {
+    setState(() {
+      _isInitializing = true;
+      _initError = null;
+    });
+
     try {
       final hasPermission = await _recorder.hasPermission();
       if (!hasPermission) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Microphone permission is required to record audio memos.'),
-              backgroundColor: AppColors.danger,
-            ),
-          );
-          Navigator.pop(context, null);
+          setState(() {
+            _hasPermission = false;
+            _isInitializing = false;
+            _initError = 'Microphone permission is required to record audio memos.';
+          });
         }
         return;
       }
+
+      if (mounted) {
+        setState(() {
+          _hasPermission = true;
+        });
+      }
+
+      // Ensure any existing recording session is cleanly finalized before starting
+      try {
+        if (await _recorder.isRecording()) {
+          await _recorder.stop();
+        }
+      } catch (_) {}
 
       final appDocDir = await getApplicationDocumentsDirectory();
       final dir = Directory('${appDocDir.path}/voice_notes/${widget.voiceNoteId}');
@@ -94,21 +126,64 @@ class _LiveRecordingModalState extends State<LiveRecordingModal> with SingleTick
       final filePath = '${dir.path}/$_recordingId.m4a';
       _currentRecordingPath = filePath;
 
-      await _recorder.start(
-        const RecordConfig(
-          encoder: AudioEncoder.aacLc,
-          bitRate: 128000,
-          sampleRate: 44100,
-        ),
-        path: filePath,
-      );
+      // Multi-tier robust hardware codec configuration:
+      // Tier 1: AAC-LC Mono 128kbps / 44.1kHz (High quality, standard)
+      // Tier 2: AAC-LC Mono (device-native sample rate & bitrate)
+      // Tier 3: Default hardware encoder Mono
+      // Tier 4: Fallback default configuration
+      bool started = false;
+      try {
+        await _recorder.start(
+          const RecordConfig(
+            encoder: AudioEncoder.aacLc,
+            numChannels: 1,
+            bitRate: 128000,
+            sampleRate: 44100,
+          ),
+          path: filePath,
+        );
+        started = true;
+      } catch (_) {
+        try {
+          await _recorder.start(
+            const RecordConfig(
+              encoder: AudioEncoder.aacLc,
+              numChannels: 1,
+            ),
+            path: filePath,
+          );
+          started = true;
+        } catch (_) {
+          try {
+            await _recorder.start(
+              const RecordConfig(numChannels: 1),
+              path: filePath,
+            );
+            started = true;
+          } catch (_) {
+            await _recorder.start(
+              const RecordConfig(),
+              path: filePath,
+            );
+            started = true;
+          }
+        }
+      }
+
+      if (!started) {
+        throw Exception('Audio recorder could not be initialized on this device.');
+      }
+
+      if (!mounted) return;
 
       setState(() {
         _isRecording = true;
         _isPaused = false;
+        _isInitializing = false;
         _elapsed = Duration.zero;
       });
 
+      _durationTimer?.cancel();
       _durationTimer = Timer.periodic(const Duration(seconds: 1), (_) {
         if (!_isPaused && mounted) {
           setState(() {
@@ -117,26 +192,30 @@ class _LiveRecordingModalState extends State<LiveRecordingModal> with SingleTick
         }
       });
 
-      // Sample amplitudes for live waveform
+      // Sample amplitudes for live waveform safely
+      _amplitudeTimer?.cancel();
       _amplitudeTimer = Timer.periodic(const Duration(milliseconds: 100), (_) async {
         if (_isRecording && !_isPaused && mounted) {
-          final amp = await _recorder.getAmplitude();
-          final normalized = ((amp.current + 60) / 60).clamp(0.08, 1.0);
-          setState(() {
-            _waveformAmplitudes.removeAt(0);
-            _waveformAmplitudes.add(normalized);
-          });
+          try {
+            final amp = await _recorder.getAmplitude();
+            if (!mounted) return;
+            final normalized = ((amp.current + 60) / 60).clamp(0.08, 1.0);
+            setState(() {
+              _waveformAmplitudes.removeAt(0);
+              _waveformAmplitudes.add(normalized);
+            });
+          } catch (_) {
+            // Amplitude polling errors should never crash the recording engine
+          }
         }
       });
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to initialize recording: $e'),
-            backgroundColor: AppColors.danger,
-          ),
-        );
-        Navigator.pop(context, null);
+        setState(() {
+          _isInitializing = false;
+          _isRecording = false;
+          _initError = 'Failed to initialize recording: $e';
+        });
       }
     }
   }
@@ -148,6 +227,7 @@ class _LiveRecordingModalState extends State<LiveRecordingModal> with SingleTick
       setState(() {
         _isPaused = true;
       });
+
     } catch (_) {}
   }
 
@@ -285,62 +365,160 @@ class _LiveRecordingModalState extends State<LiveRecordingModal> with SingleTick
           ),
           const SizedBox(height: 12),
 
-          // Live Pulse & Elapsed Time
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              AnimatedBuilder(
-                animation: _pulseController,
-                builder: (context, child) {
-                  return Container(
-                    width: 12,
-                    height: 12,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: _isPaused
-                          ? Colors.amber
-                          : AppColors.danger.withAlpha((140 + 115 * _pulseController.value).toInt()),
-                      boxShadow: [
-                        if (!_isPaused)
-                          BoxShadow(
-                            color: AppColors.danger.withAlpha((100 * _pulseController.value).toInt()),
-                            blurRadius: 8,
-                            spreadRadius: 2,
-                          ),
-                      ],
-                    ),
-                  );
-                },
+          if (!_hasPermission) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.amber.withAlpha(25),
+                borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
+                border: Border.all(color: Colors.amber.withAlpha(60)),
               ),
-              const SizedBox(width: 8),
-              Text(
-                _isPaused ? 'PAUSED' : 'RECORDING',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 1.2,
-                  color: _isPaused ? Colors.amber : AppColors.danger,
+              child: Column(
+                children: [
+                  const Icon(Icons.mic_off_rounded, size: 36, color: Colors.amber),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'Microphone Permission Required',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'NoteFlow requires microphone permission to record audio memos.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 13, color: secondaryTextColor),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context, null),
+                        child: const Text('Cancel'),
+                      ),
+                      const SizedBox(width: 12),
+                      FilledButton.icon(
+                        style: FilledButton.styleFrom(backgroundColor: AppColors.primary),
+                        onPressed: _startRecording,
+                        icon: const Icon(Icons.mic_rounded, size: 18),
+                        label: const Text('Grant Access'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+          ] else if (_initError != null) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppColors.danger.withAlpha(25),
+                borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
+                border: Border.all(color: AppColors.danger.withAlpha(60)),
+              ),
+              child: Column(
+                children: [
+                  const Icon(Icons.error_outline_rounded, size: 36, color: AppColors.danger),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'Recording Initialization Error',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    _initError!,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 13, color: secondaryTextColor),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context, null),
+                        child: const Text('Cancel'),
+                      ),
+                      const SizedBox(width: 12),
+                      FilledButton.icon(
+                        style: FilledButton.styleFrom(backgroundColor: AppColors.primary),
+                        onPressed: _startRecording,
+                        icon: const Icon(Icons.refresh_rounded, size: 18),
+                        label: const Text('Retry'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+          ] else if (_isInitializing) ...[
+            const SizedBox(height: 24),
+            const Center(child: CircularProgressIndicator()),
+            const SizedBox(height: 12),
+            Text(
+              'Preparing microphone...',
+              style: TextStyle(color: secondaryTextColor, fontSize: 13),
+            ),
+            const SizedBox(height: 24),
+          ] else ...[
+            // Live Pulse & Elapsed Time
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                AnimatedBuilder(
+                  animation: _pulseController,
+                  builder: (context, child) {
+                    return Container(
+                      width: 12,
+                      height: 12,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: _isPaused
+                            ? Colors.amber
+                            : AppColors.danger.withAlpha((140 + 115 * _pulseController.value).toInt()),
+                        boxShadow: [
+                          if (!_isPaused)
+                            BoxShadow(
+                              color: AppColors.danger.withAlpha((100 * _pulseController.value).toInt()),
+                              blurRadius: 8,
+                              spreadRadius: 2,
+                            ),
+                        ],
+                      ),
+                    );
+                  },
                 ),
-              ),
-              const SizedBox(width: 14),
-              Text(
-                AudioHelper.formatDuration(_elapsed),
-                style: TextStyle(
-                  fontSize: 22,
-                  fontFamily: 'monospace',
-                  fontWeight: FontWeight.bold,
-                  color: primaryTextColor,
+                const SizedBox(width: 8),
+                Text(
+                  _isPaused ? 'PAUSED' : 'RECORDING',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 1.2,
+                    color: _isPaused ? Colors.amber : AppColors.danger,
+                  ),
                 ),
-              ),
-            ],
-          ),
+                const SizedBox(width: 14),
+                Text(
+                  AudioHelper.formatDuration(_elapsed),
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontFamily: 'monospace',
+                    fontWeight: FontWeight.bold,
+                    color: primaryTextColor,
+                  ),
+                ),
+              ],
+            ),
 
-          const SizedBox(height: 20),
+            const SizedBox(height: 20),
 
-          // Live Audio Visualizer Bars
-          SizedBox(
-            height: 48,
-            child: Row(
+            // Live Audio Visualizer Bars
+            SizedBox(
+              height: 48,
+              child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.center,
               children: _waveformAmplitudes.map((amp) {
@@ -407,7 +585,8 @@ class _LiveRecordingModalState extends State<LiveRecordingModal> with SingleTick
             ],
           ),
         ],
-      ),
-    );
-  }
+      ],
+    ),
+  );
+}
 }
