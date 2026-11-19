@@ -390,271 +390,411 @@ class _LiveRecordingModalState extends State<LiveRecordingModal> with SingleTick
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final primaryTextColor = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
     final secondaryTextColor = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+    final surfaceColor = isDark ? AppColors.darkSurface : AppColors.lightSurface;
+    final backgroundColor = isDark ? AppColors.darkBackground : AppColors.lightBackground;
+    final borderColor = isDark ? AppColors.darkBorder : AppColors.lightBorder;
 
-    return Container(
-      padding: EdgeInsets.only(
-        top: 20,
-        left: 20,
-        right: 20,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
-      ),
-      decoration: BoxDecoration(
-        color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(AppConstants.radiusLarge)),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Drag handle bar
-          Container(
-            width: 40,
-            height: 4,
-            margin: const EdgeInsets.only(bottom: 16),
+    return GestureDetector(
+      onTap: () => FocusScope.of(context).unfocus(),
+      behavior: HitTestBehavior.opaque,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom,
+          ),
+          child: Container(
             decoration: BoxDecoration(
-              color: isDark ? Colors.white24 : Colors.black12,
-              borderRadius: BorderRadius.circular(2),
+              color: surfaceColor,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(AppConstants.radiusLarge)),
             ),
-          ),
+            child: SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Drag handle bar
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        margin: const EdgeInsets.only(bottom: 12),
+                        decoration: BoxDecoration(
+                          color: isDark ? Colors.white24 : Colors.black12,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
 
-          // Title input
-          TextField(
-            controller: _titleController,
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
-              color: primaryTextColor,
-            ),
-            decoration: InputDecoration(
-              hintText: 'Recording Title...',
-              hintStyle: TextStyle(color: secondaryTextColor),
-              border: InputBorder.none,
-              prefixIcon: const Icon(Icons.mic_rounded, color: AppColors.primary),
-            ),
-          ),
-          const SizedBox(height: 12),
-
-          if (!_hasPermission) ...[
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.amber.withAlpha(25),
-                borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
-                border: Border.all(color: Colors.amber.withAlpha(60)),
-              ),
-              child: Column(
-                children: [
-                  const Icon(Icons.mic_off_rounded, size: 36, color: Colors.amber),
-                  const SizedBox(height: 10),
-                  const Text(
-                    'Microphone Permission Required',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'NoteFlow requires microphone permission to record audio memos.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 13, color: secondaryTextColor),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(context, null),
-                        child: const Text('Cancel'),
-                      ),
-                      const SizedBox(width: 12),
-                      FilledButton.icon(
-                        style: FilledButton.styleFrom(backgroundColor: AppColors.primary),
-                        onPressed: _startRecording,
-                        icon: const Icon(Icons.mic_rounded, size: 18),
-                        label: const Text('Grant Access'),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-          ] else if (_initError != null) ...[
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: AppColors.danger.withAlpha(25),
-                borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
-                border: Border.all(color: AppColors.danger.withAlpha(60)),
-              ),
-              child: Column(
-                children: [
-                  const Icon(Icons.error_outline_rounded, size: 36, color: AppColors.danger),
-                  const SizedBox(height: 10),
-                  const Text(
-                    'Recording Initialization Error',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    _initError!,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 13, color: secondaryTextColor),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(context, null),
-                        child: const Text('Cancel'),
-                      ),
-                      const SizedBox(width: 12),
-                      FilledButton.icon(
-                        style: FilledButton.styleFrom(backgroundColor: AppColors.primary),
-                        onPressed: _startRecording,
-                        icon: const Icon(Icons.refresh_rounded, size: 18),
-                        label: const Text('Retry'),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-          ] else if (_isInitializing) ...[
-            const SizedBox(height: 24),
-            const Center(child: CircularProgressIndicator()),
-            const SizedBox(height: 12),
-            Text(
-              'Preparing microphone...',
-              style: TextStyle(color: secondaryTextColor, fontSize: 13),
-            ),
-            const SizedBox(height: 24),
-          ] else ...[
-            // Live Pulse & Elapsed Time
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                AnimatedBuilder(
-                  animation: _pulseController,
-                  builder: (context, child) {
-                    return Container(
-                      width: 12,
-                      height: 12,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: _isPaused
-                            ? Colors.amber
-                            : AppColors.danger.withAlpha((140 + 115 * _pulseController.value).toInt()),
-                        boxShadow: [
-                          if (!_isPaused)
-                            BoxShadow(
-                              color: AppColors.danger.withAlpha((100 * _pulseController.value).toInt()),
-                              blurRadius: 8,
-                              spreadRadius: 2,
+                    // Header Row with Title and Close button
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(6),
+                              decoration: BoxDecoration(
+                                color: AppColors.primary.withAlpha(25),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Icon(
+                                Icons.mic_rounded,
+                                size: 18,
+                                color: AppColors.primary,
+                              ),
                             ),
+                            const SizedBox(width: 10),
+                            Text(
+                              'Voice Recording',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                                color: primaryTextColor,
+                              ),
+                            ),
+                          ],
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close_rounded, size: 20),
+                          color: secondaryTextColor,
+                          tooltip: 'Close',
+                          visualDensity: VisualDensity.compact,
+                          onPressed: _cancelRecording,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Title input field inside styled card
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: backgroundColor,
+                        borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
+                        border: Border.all(color: borderColor),
+                      ),
+                      child: TextField(
+                        controller: _titleController,
+                        textCapitalization: TextCapitalization.sentences,
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: primaryTextColor,
+                        ),
+                        decoration: InputDecoration(
+                          hintText: 'Recording Title...',
+                          hintStyle: TextStyle(
+                            color: secondaryTextColor,
+                            fontSize: 15,
+                            fontWeight: FontWeight.normal,
+                          ),
+                          border: InputBorder.none,
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    if (!_hasPermission) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.amber.withAlpha(25),
+                          borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
+                          border: Border.all(color: Colors.amber.withAlpha(60)),
+                        ),
+                        child: Column(
+                          children: [
+                            const Icon(Icons.mic_off_rounded, size: 36, color: Colors.amber),
+                            const SizedBox(height: 10),
+                            const Text(
+                              'Microphone Permission Required',
+                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              'NoteFlow requires microphone permission to record audio memos.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(fontSize: 13, color: secondaryTextColor),
+                            ),
+                            const SizedBox(height: 16),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                TextButton(
+                                  onPressed: () => Navigator.pop(context, null),
+                                  child: const Text('Cancel'),
+                                ),
+                                const SizedBox(width: 12),
+                                FilledButton.icon(
+                                  style: FilledButton.styleFrom(backgroundColor: AppColors.primary),
+                                  onPressed: _startRecording,
+                                  icon: const Icon(Icons.mic_rounded, size: 18),
+                                  label: const Text('Grant Access'),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                    ] else if (_initError != null) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: AppColors.danger.withAlpha(25),
+                          borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
+                          border: Border.all(color: AppColors.danger.withAlpha(60)),
+                        ),
+                        child: Column(
+                          children: [
+                            const Icon(Icons.error_outline_rounded, size: 36, color: AppColors.danger),
+                            const SizedBox(height: 10),
+                            const Text(
+                              'Recording Initialization Error',
+                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              _initError!,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(fontSize: 13, color: secondaryTextColor),
+                            ),
+                            const SizedBox(height: 16),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                TextButton(
+                                  onPressed: () => Navigator.pop(context, null),
+                                  child: const Text('Cancel'),
+                                ),
+                                const SizedBox(width: 12),
+                                FilledButton.icon(
+                                  style: FilledButton.styleFrom(backgroundColor: AppColors.primary),
+                                  onPressed: _startRecording,
+                                  icon: const Icon(Icons.refresh_rounded, size: 18),
+                                  label: const Text('Retry'),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                    ] else if (_isInitializing) ...[
+                      const SizedBox(height: 24),
+                      const Center(child: CircularProgressIndicator()),
+                      const SizedBox(height: 12),
+                      Center(
+                        child: Text(
+                          'Preparing microphone...',
+                          style: TextStyle(color: secondaryTextColor, fontSize: 13),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                    ] else ...[
+                      // Live Recording Indicator & Elapsed Time
+                      Center(
+                        child: Column(
+                          children: [
+                            // Status pill: RECORDING / PAUSED
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                              decoration: BoxDecoration(
+                                color: _isPaused
+                                    ? Colors.amber.withAlpha(25)
+                                    : AppColors.danger.withAlpha(20),
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: _isPaused
+                                      ? Colors.amber.withAlpha(70)
+                                      : AppColors.danger.withAlpha(60),
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  AnimatedBuilder(
+                                    animation: _pulseController,
+                                    builder: (context, child) {
+                                      return Container(
+                                        width: 8,
+                                        height: 8,
+                                        decoration: BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          color: _isPaused
+                                              ? Colors.amber
+                                              : AppColors.danger.withAlpha(
+                                                  (140 + 115 * _pulseController.value).toInt(),
+                                                ),
+                                          boxShadow: [
+                                            if (!_isPaused)
+                                              BoxShadow(
+                                                color: AppColors.danger.withAlpha(
+                                                  (100 * _pulseController.value).toInt(),
+                                                ),
+                                                blurRadius: 6,
+                                                spreadRadius: 1,
+                                              ),
+                                          ],
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    _isPaused ? 'PAUSED' : 'RECORDING',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                      letterSpacing: 1.1,
+                                      color: _isPaused ? Colors.amber : AppColors.danger,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+
+                            // Timer display
+                            Text(
+                              AudioHelper.formatTwoDigits(_elapsed),
+                              style: TextStyle(
+                                fontSize: 36,
+                                fontFamily: 'monospace',
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 1.5,
+                                color: primaryTextColor,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Waveform Visualizer
+                      Container(
+                        height: 52,
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        decoration: BoxDecoration(
+                          color: isDark ? Colors.white.withAlpha(6) : Colors.black.withAlpha(6),
+                          borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
+                        ),
+                        alignment: Alignment.center,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: _waveformAmplitudes.map((amp) {
+                            final barHeight = (44 * amp).clamp(4.0, 44.0);
+                            return Container(
+                              width: 3.5,
+                              height: barHeight,
+                              margin: const EdgeInsets.symmetric(horizontal: 2),
+                              decoration: BoxDecoration(
+                                color: _isPaused
+                                    ? Colors.amber.withAlpha(160)
+                                    : AppColors.primary.withAlpha((120 + 135 * amp).toInt()),
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+
+                      // Control Actions with Labels: Discard, Pause/Resume, Save
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          // Discard / Cancel Button
+                          _buildActionButton(
+                            icon: Icons.delete_outline_rounded,
+                            label: 'Discard',
+                            tooltip: 'Discard',
+                            iconColor: AppColors.danger,
+                            backgroundColor: AppColors.danger.withAlpha(25),
+                            onTap: _cancelRecording,
+                            secondaryTextColor: secondaryTextColor,
+                          ),
+
+                          // Pause / Resume Button
+                          _buildActionButton(
+                            icon: _isPaused ? Icons.play_arrow_rounded : Icons.pause_rounded,
+                            label: _isPaused ? 'Resume' : 'Pause',
+                            tooltip: _isPaused ? 'Resume' : 'Pause',
+                            iconColor: _isPaused ? Colors.black : (isDark ? Colors.white : Colors.black87),
+                            backgroundColor: _isPaused ? Colors.amber : (isDark ? Colors.white12 : Colors.black12),
+                            size: 58,
+                            iconSize: 28,
+                            onTap: _isPaused ? _resumeRecording : _pauseRecording,
+                            secondaryTextColor: secondaryTextColor,
+                          ),
+
+                          // Stop & Save Button
+                          _buildActionButton(
+                            icon: Icons.check_rounded,
+                            label: 'Save',
+                            tooltip: 'Save Recording',
+                            iconColor: Colors.white,
+                            backgroundColor: AppColors.primary,
+                            onTap: _saveRecording,
+                            secondaryTextColor: secondaryTextColor,
+                          ),
                         ],
                       ),
-                    );
-                  },
+                    ],
+                  ],
                 ),
-                const SizedBox(width: 8),
-                Text(
-                  _isPaused ? 'PAUSED' : 'RECORDING',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 1.2,
-                    color: _isPaused ? Colors.amber : AppColors.danger,
-                  ),
-                ),
-                const SizedBox(width: 14),
-                Text(
-                  AudioHelper.formatDuration(_elapsed),
-                  style: TextStyle(
-                    fontSize: 22,
-                    fontFamily: 'monospace',
-                    fontWeight: FontWeight.bold,
-                    color: primaryTextColor,
-                  ),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 20),
-
-            // Live Audio Visualizer Bars
-            SizedBox(
-              height: 48,
-              child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: _waveformAmplitudes.map((amp) {
-                final barHeight = (44 * amp).clamp(4.0, 44.0);
-                return Container(
-                  width: 3.5,
-                  height: barHeight,
-                  margin: const EdgeInsets.symmetric(horizontal: 2),
-                  decoration: BoxDecoration(
-                    color: _isPaused
-                        ? Colors.amber.withAlpha(160)
-                        : AppColors.primary.withAlpha((120 + 135 * amp).toInt()),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                );
-              }).toList(),
+              ),
             ),
           ),
+        ),
+      ),
+    );
+  }
 
-          const SizedBox(height: 24),
-
-          // Control Actions: Discard, Pause/Resume, Stop & Save
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              // Discard / Cancel
-              IconButton.filledTonal(
-                tooltip: 'Discard',
-                style: IconButton.styleFrom(
-                  backgroundColor: isDark ? Colors.white10 : Colors.black12,
-                  foregroundColor: secondaryTextColor,
-                  padding: const EdgeInsets.all(12),
-                ),
-                icon: const Icon(Icons.delete_outline_rounded, size: 24),
-                onPressed: _cancelRecording,
-              ),
-
-              // Pause / Resume
-              IconButton.filled(
-                tooltip: _isPaused ? 'Resume' : 'Pause',
-                style: IconButton.styleFrom(
-                  backgroundColor: _isPaused ? Colors.amber : (isDark ? Colors.white24 : Colors.black26),
-                  foregroundColor: _isPaused ? Colors.black : Colors.white,
-                  padding: const EdgeInsets.all(16),
-                ),
-                icon: Icon(
-                  _isPaused ? Icons.play_arrow_rounded : Icons.pause_rounded,
-                  size: 28,
-                ),
-                onPressed: _isPaused ? _resumeRecording : _pauseRecording,
-              ),
-
-              // Stop & Save
-              IconButton.filled(
-                tooltip: 'Save Recording',
-                style: IconButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.all(16),
-                ),
-                icon: const Icon(Icons.check_rounded, size: 28),
-                onPressed: _saveRecording,
-              ),
-            ],
+  Widget _buildActionButton({
+    required IconData icon,
+    required String label,
+    required String tooltip,
+    required Color iconColor,
+    required Color backgroundColor,
+    required VoidCallback onTap,
+    required Color secondaryTextColor,
+    double size = 48,
+    double iconSize = 24,
+  }) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          tooltip: tooltip,
+          style: IconButton.styleFrom(
+            backgroundColor: backgroundColor,
+            foregroundColor: iconColor,
+            fixedSize: Size(size, size),
+            padding: EdgeInsets.zero,
           ),
-        ],
+          icon: Icon(icon, size: iconSize, color: iconColor),
+          onPressed: onTap,
+        ),
+        const SizedBox(height: 6),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: secondaryTextColor,
+          ),
+        ),
       ],
-    ),
-  );
-}
+    );
+  }
 }

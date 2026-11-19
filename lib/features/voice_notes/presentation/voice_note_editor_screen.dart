@@ -352,7 +352,10 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
     final result = await showModalBottomSheet<VoiceRecordingEntity>(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: Colors.transparent,
+      enableDrag: true,
+      isDismissible: true,
       builder: (_) => LiveRecordingModal(
         voiceNoteId: _currentNote.id,
         nextSortOrder: currentCount,
