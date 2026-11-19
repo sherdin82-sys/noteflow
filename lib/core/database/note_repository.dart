@@ -3,8 +3,10 @@ import '../../shared/models/note_entity.dart';
 import '../../shared/models/folder_entity.dart';
 import '../../shared/models/voice_recording_entity.dart';
 import '../../shared/models/backup_models.dart';
+import '../../shared/models/reminder_entity.dart';
 
 export '../../shared/models/backup_models.dart';
+export '../../shared/models/reminder_entity.dart';
 
 abstract class NoteRepository {
   /// Stream of all active or archived notes
@@ -72,5 +74,35 @@ abstract class NoteRepository {
 
   /// Delete a local backup file
   Future<void> deleteBackupFile(String filePath);
+
+  /// Stream of all reminders
+  Stream<List<ReminderEntity>> watchReminders();
+
+  /// Get all reminders
+  Future<List<ReminderEntity>> getReminders();
+
+  /// Get reminder by ID
+  Future<ReminderEntity?> getReminderById(String id);
+
+  /// Get active reminder for a whole note
+  Future<ReminderEntity?> getReminderForNote(String noteId);
+
+  /// Get active reminder for an individual checklist item
+  Future<ReminderEntity?> getReminderForChecklistItem(String noteId, String checklistItemId);
+
+  /// Get active reminder for an individual voice recording
+  Future<ReminderEntity?> getReminderForVoiceRecording(String voiceRecordingId);
+
+  /// Save or update a reminder
+  Future<void> saveReminder(ReminderEntity reminder);
+
+  /// Delete a reminder
+  Future<void> deleteReminder(String id);
+
+  /// Mark reminder as completed
+  Future<void> completeReminder(String id);
+
+  /// Snooze reminder
+  Future<void> snoozeReminder(String id, Duration duration);
 }
 

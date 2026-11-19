@@ -287,6 +287,8 @@ class _BackupRestoreScreenState extends ConsumerState<BackupRestoreScreen> {
                               textColor,
                               secondaryText,
                             ),
+                            if (preview.remindersCount > 0)
+                              _buildStatChip(Icons.alarm_rounded, '${preview.remindersCount}', 'Reminders', textColor, secondaryText),
                           ],
                         ),
                       ],

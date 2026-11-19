@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/constants/app_constants.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/utils/note_helper.dart';
+import '../../../reminders/providers/reminder_providers.dart';
+import '../../../reminders/presentation/widgets/reminder_bottom_sheet.dart';
+import '../../../reminders/presentation/widgets/reminder_chip.dart';
 
 class ChecklistItem {
   final String id;
@@ -32,12 +36,14 @@ class ChecklistView extends StatefulWidget {
   final String rawContent;
   final ValueChanged<String> onContentChanged;
   final bool autoFocus;
+  final String? noteId;
 
   const ChecklistView({
     super.key,
     required this.rawContent,
     required this.onContentChanged,
     this.autoFocus = false,
+    this.noteId,
   });
 
   @override
@@ -87,8 +93,8 @@ class _ChecklistViewState extends State<ChecklistView> {
     }
   }
 
-  ChecklistItem _createItem({required bool isCompleted, required String text}) {
-    final item = ChecklistItem(isCompleted: isCompleted, text: text);
+  ChecklistItem _createItem({String? id, required bool isCompleted, required String text}) {
+    final item = ChecklistItem(id: id, isCompleted: isCompleted, text: text);
     _setupItemKeyHandler(item);
     return item;
   }
@@ -153,25 +159,30 @@ class _ChecklistViewState extends State<ChecklistView> {
     final lines = formatted.split('\n');
 
     for (final line in lines) {
-      final trimmed = line.trim();
-      if (trimmed.isEmpty) continue;
+      final rawTrimmed = line.trim();
+      if (rawTrimmed.isEmpty) continue;
+
+      // Extract stable checklist item ID if present
+      final idMatch = RegExp(r'<!--id:(.*?)-->').firstMatch(rawTrimmed);
+      final itemId = idMatch?.group(1);
+      final trimmed = rawTrimmed.replaceAll(RegExp(r'\s*<!--id:.*?-->'), '');
 
       if (trimmed == '[x]' || trimmed == '- [x]') {
-        _items.add(_createItem(isCompleted: true, text: ''));
+        _items.add(_createItem(id: itemId, isCompleted: true, text: ''));
       } else if (trimmed == '[ ]' || trimmed == '- [ ]') {
-        _items.add(_createItem(isCompleted: false, text: ''));
+        _items.add(_createItem(id: itemId, isCompleted: false, text: ''));
       } else if (trimmed.startsWith('[x] ') || trimmed.startsWith('- [x] ')) {
         final text = trimmed.startsWith('- [x] ') ? trimmed.substring(6) : trimmed.substring(4);
-        _items.add(_createItem(isCompleted: true, text: _sanitizeText(text)));
+        _items.add(_createItem(id: itemId, isCompleted: true, text: _sanitizeText(text)));
       } else if (trimmed.startsWith('[ ] ') || trimmed.startsWith('- [ ] ')) {
         final text = trimmed.startsWith('- [ ] ') ? trimmed.substring(6) : trimmed.substring(4);
-        _items.add(_createItem(isCompleted: false, text: _sanitizeText(text)));
+        _items.add(_createItem(id: itemId, isCompleted: false, text: _sanitizeText(text)));
       } else if (trimmed.startsWith('• ') || trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
-        _items.add(_createItem(isCompleted: false, text: _sanitizeText(trimmed.substring(2))));
+        _items.add(_createItem(id: itemId, isCompleted: false, text: _sanitizeText(trimmed.substring(2))));
       } else if (RegExp(r'^\d+\.\s').hasMatch(trimmed)) {
-        _items.add(_createItem(isCompleted: false, text: _sanitizeText(trimmed.replaceFirst(RegExp(r'^\d+\.\s'), ''))));
+        _items.add(_createItem(id: itemId, isCompleted: false, text: _sanitizeText(trimmed.replaceFirst(RegExp(r'^\d+\.\s'), ''))));
       } else {
-        _items.add(_createItem(isCompleted: false, text: _sanitizeText(trimmed)));
+        _items.add(_createItem(id: itemId, isCompleted: false, text: _sanitizeText(trimmed)));
       }
     }
 
@@ -186,7 +197,7 @@ class _ChecklistViewState extends State<ChecklistView> {
     return _items.map((item) {
       final check = item.isCompleted ? '[x]' : '[ ]';
       final text = item.controller.text;
-      return text.isEmpty ? check : '$check $text';
+      return text.isEmpty ? '$check <!--id:${item.id}-->' : '$check $text <!--id:${item.id}-->';
     }).join('\n');
   }
 
@@ -349,34 +360,103 @@ class _ChecklistViewState extends State<ChecklistView> {
                     ),
                   ),
 
-                  // Task text field
+                  // Task text field and reminder chip
                   Expanded(
-                    child: TextField(
-                      key: ValueKey('input-${item.id}'),
-                      controller: item.controller,
-                      focusNode: item.focusNode,
-                      textInputAction: TextInputAction.next,
-                      onSubmitted: (_) => _handleSubmitted(index),
-                      onChanged: (_) => _notifyChange(),
-                      style: TextStyle(
-                        fontSize: 16,
-                        color: item.isCompleted ? completedTextColor : primaryTextColor,
-                        decoration: item.isCompleted ? TextDecoration.lineThrough : null,
-                        decorationColor: completedTextColor,
-                      ),
-                      decoration: InputDecoration(
-                        border: InputBorder.none,
-                        enabledBorder: InputBorder.none,
-                        focusedBorder: InputBorder.none,
-                        contentPadding: const EdgeInsets.symmetric(vertical: 8),
-                        hintText: 'Task description...',
-                        hintStyle: TextStyle(
-                          fontSize: 16,
-                          color: isDark ? AppColors.darkTextTertiary : AppColors.lightTextTertiary,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        TextField(
+                          key: ValueKey('input-${item.id}'),
+                          controller: item.controller,
+                          focusNode: item.focusNode,
+                          textInputAction: TextInputAction.next,
+                          onSubmitted: (_) => _handleSubmitted(index),
+                          onChanged: (_) => _notifyChange(),
+                          style: TextStyle(
+                            fontSize: 16,
+                            color: item.isCompleted ? completedTextColor : primaryTextColor,
+                            decoration: item.isCompleted ? TextDecoration.lineThrough : null,
+                            decorationColor: completedTextColor,
+                          ),
+                          decoration: InputDecoration(
+                            border: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                            contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                            hintText: 'Task description...',
+                            hintStyle: TextStyle(
+                              fontSize: 16,
+                              color: isDark ? AppColors.darkTextTertiary : AppColors.lightTextTertiary,
+                            ),
+                          ),
                         ),
-                      ),
+                        if (widget.noteId != null)
+                          Consumer(
+                            builder: (context, ref, _) {
+                              final rem = ref.watch(checklistItemReminderProvider(ChecklistItemParam(
+                                noteId: widget.noteId!,
+                                checklistItemId: item.id,
+                              )));
+                              if (rem == null) return const SizedBox.shrink();
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 6),
+                                child: ReminderChip(
+                                  reminder: rem,
+                                  compact: true,
+                                  onTap: () {
+                                    ReminderBottomSheet.show(
+                                      context: context,
+                                      noteId: widget.noteId!,
+                                      checklistItemId: item.id,
+                                      defaultTitle: item.text.isNotEmpty ? item.text : 'Checklist Item',
+                                      existingReminder: rem,
+                                    );
+                                  },
+                                  onDelete: () {
+                                    ref.read(reminderServiceProvider).deleteReminder(rem.id);
+                                  },
+                                ),
+                              );
+                            },
+                          ),
+                      ],
                     ),
                   ),
+
+                  // Per-item reminder button
+                  if (widget.noteId != null)
+                    Consumer(
+                      builder: (context, ref, _) {
+                        final rem = ref.watch(checklistItemReminderProvider(ChecklistItemParam(
+                          noteId: widget.noteId!,
+                          checklistItemId: item.id,
+                        )));
+                        final hasReminder = rem != null;
+
+                        return IconButton(
+                          visualDensity: VisualDensity.compact,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                          icon: Icon(
+                            hasReminder ? Icons.alarm_on_rounded : Icons.alarm_add_rounded,
+                            size: 18,
+                            color: hasReminder
+                                ? AppColors.primary
+                                : (isDark ? AppColors.darkTextTertiary : AppColors.lightTextTertiary),
+                          ),
+                          tooltip: hasReminder ? 'Edit Reminder' : 'Set Reminder',
+                          onPressed: () {
+                            ReminderBottomSheet.show(
+                              context: context,
+                              noteId: widget.noteId!,
+                              checklistItemId: item.id,
+                              defaultTitle: item.text.isNotEmpty ? item.text : 'Checklist Item',
+                              existingReminder: rem,
+                            );
+                          },
+                        );
+                      },
+                    ),
 
                   // Quick remove button
                   IconButton(

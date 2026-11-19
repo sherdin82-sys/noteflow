@@ -5,6 +5,7 @@ import '../../../shared/models/backup_models.dart';
 import '../../../shared/models/folder_entity.dart';
 import '../../../shared/models/note_entity.dart';
 import '../../../shared/models/voice_recording_entity.dart';
+import '../../../shared/models/reminder_entity.dart';
 
 class RestoreService {
   final LocalNoteRepository repository;
@@ -87,6 +88,7 @@ class RestoreService {
     final notesList = (parsed['notes'] as List<dynamic>?) ?? [];
     final foldersList = (parsed['folders'] as List<dynamic>?) ?? [];
     final recordingsList = (parsed['voice_recordings'] as List<dynamic>?) ?? [];
+    final rawReminders = (parsed['reminders'] as List<dynamic>?) ?? [];
     final audioPayloads = (parsed['audio_payloads'] as Map<String, dynamic>?) ?? {};
 
     final stats = parsed['stats'] as Map<String, dynamic>?;
@@ -94,6 +96,7 @@ class RestoreService {
     final foldersCount = stats?['folders_count'] as int? ?? foldersList.length;
     final recordingsCount = stats?['recordings_count'] as int? ?? recordingsList.length;
     final audioFilesCount = stats?['audio_files_count'] as int? ?? audioPayloads.length;
+    final remindersCount = stats?['reminders_count'] as int? ?? rawReminders.length;
     final hasAudio = stats?['has_audio'] as bool? ?? (audioFilesCount > 0);
 
     final calculatedSize = fileSize ?? utf8.encode(content).length;
@@ -107,6 +110,7 @@ class RestoreService {
       recordingsCount: recordingsCount,
       hasAudio: hasAudio,
       audioFilesCount: audioFilesCount,
+      remindersCount: remindersCount,
       totalSizeBytes: calculatedSize,
       filePath: filePath,
       fileName: fileName,
@@ -176,6 +180,7 @@ class RestoreService {
       final rawFolders = parsed['folders'] as List<dynamic>? ?? [];
       final rawNotes = parsed['notes'] as List<dynamic>? ?? [];
       final rawRecordings = parsed['voice_recordings'] as List<dynamic>? ?? [];
+      final rawReminders = parsed['reminders'] as List<dynamic>? ?? [];
       final audioPayloads = (parsed['audio_payloads'] as Map<String, dynamic>?) ?? {};
       final themeMode = parsed['theme_mode'] as String? ?? 'dark';
 
@@ -187,6 +192,9 @@ class RestoreService {
           .toList();
       final backupRecordings = rawRecordings
           .map((r) => VoiceRecordingEntity.fromMap(Map<String, dynamic>.from(r as Map)))
+          .toList();
+      final backupReminders = rawReminders
+          .map((r) => ReminderEntity.fromMap(Map<String, dynamic>.from(r as Map)))
           .toList();
 
       // Audio file extraction to permanent storage
@@ -235,6 +243,7 @@ class RestoreService {
           folders: backupFolders,
           notes: backupNotes,
           voiceRecordings: backupRecordings,
+          reminders: backupReminders,
           themeMode: themeMode,
         );
       } else {
@@ -242,6 +251,7 @@ class RestoreService {
           folders: backupFolders,
           notes: backupNotes,
           voiceRecordings: backupRecordings,
+          reminders: backupReminders,
           themeMode: themeMode,
         );
       }

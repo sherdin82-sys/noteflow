@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
@@ -18,6 +19,8 @@ import '../../voice_notes/presentation/voice_note_editor_screen.dart';
 import '../../archive/presentation/archive_screen.dart';
 import '../../folders/presentation/folders_screen.dart';
 import '../../backup/presentation/backup_restore_screen.dart';
+import '../../reminders/presentation/reminder_management_screen.dart';
+import '../../reminders/services/reminder_native_bridge.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -29,9 +32,39 @@ class HomeScreen extends ConsumerStatefulWidget {
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   final TextEditingController _searchController = TextEditingController();
   final _uuid = const Uuid();
+  StreamSubscription? _notificationTapSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _initNotificationRouting();
+  }
+
+  void _initNotificationRouting() async {
+    try {
+      final initial = await ReminderNativeBridge.getInitialNotificationPayload();
+      if (initial != null && initial.containsKey('noteId')) {
+        final noteId = initial['noteId'] as String?;
+        if (noteId != null && noteId.isNotEmpty && mounted) {
+          _navigateToEditor(noteId: noteId);
+        }
+      }
+
+      _notificationTapSub = ReminderNativeBridge.onNotificationTapped.listen((payload) {
+        if (!mounted) return;
+        final noteId = payload['noteId'] as String?;
+        if (noteId != null && noteId.isNotEmpty) {
+          _navigateToEditor(noteId: noteId);
+        } else {
+          _navigateToReminders();
+        }
+      });
+    } catch (_) {}
+  }
 
   @override
   void dispose() {
+    _notificationTapSub?.cancel();
     _searchController.dispose();
     super.dispose();
   }
@@ -70,6 +103,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           isVoiceNote: note?.hasAudio ?? false,
         ),
       ),
+    );
+  }
+
+  void _navigateToReminders() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const ReminderManagementScreen()),
     );
   }
 
@@ -154,6 +194,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 context,
                 MaterialPageRoute(builder: (_) => const BackupRestoreScreen()),
               ),
+              onOpenReminders: _navigateToReminders,
               onSortChanged: (sort) => filterNotifier.setSortOrder(sort),
             ),
 

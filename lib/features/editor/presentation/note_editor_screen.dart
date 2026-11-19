@@ -17,6 +17,9 @@ import 'widgets/editor_toolbar.dart';
 import 'widgets/checklist_view.dart';
 import 'widgets/note_stats_modal.dart';
 import 'widgets/voice_note_widget.dart';
+import '../../reminders/providers/reminder_providers.dart';
+import '../../reminders/presentation/widgets/reminder_bottom_sheet.dart';
+import '../../reminders/presentation/widgets/reminder_chip.dart';
 
 class NoteEditorScreen extends ConsumerStatefulWidget {
   final String? noteId;
@@ -505,6 +508,36 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
               },
             ),
 
+            Consumer(
+              builder: (context, ref, _) {
+                final rem = ref.watch(noteReminderProvider(_currentNote.id));
+                final hasReminder = rem != null;
+
+                return IconButton(
+                  icon: Icon(
+                    hasReminder ? Icons.alarm_on_rounded : Icons.alarm_add_rounded,
+                    color: hasReminder ? AppColors.primary : secondaryTextColor,
+                  ),
+                  tooltip: hasReminder ? 'Edit Reminder' : 'Set Reminder',
+                  onPressed: () async {
+                    await _saveNoteImmediate();
+                    if (!context.mounted) return;
+                    final title = _titleController.text.trim().isNotEmpty
+                        ? _titleController.text.trim()
+                        : 'Note Reminder';
+                    final preview = NoteHelper.extractPlainText(_currentNote.content).trim();
+                    ReminderBottomSheet.show(
+                      context: context,
+                      noteId: _currentNote.id,
+                      defaultTitle: title,
+                      defaultPreview: preview,
+                      existingReminder: rem,
+                    );
+                  },
+                );
+              },
+            ),
+
             PopupMenuButton<String>(
               icon: Icon(Icons.more_vert, color: secondaryTextColor),
               shape: RoundedRectangleBorder(
@@ -708,9 +741,43 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
 
                   const SizedBox(height: 12),
 
+                  // Active Note Reminder Chip
+                  Consumer(
+                    builder: (context, ref, _) {
+                      final rem = ref.watch(noteReminderProvider(_currentNote.id));
+                      if (rem == null) return const SizedBox.shrink();
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: ReminderChip(
+                            reminder: rem,
+                            onTap: () {
+                              final title = _titleController.text.trim().isNotEmpty
+                                  ? _titleController.text.trim()
+                                  : 'Note Reminder';
+                              final preview = NoteHelper.extractPlainText(_currentNote.content).trim();
+                              ReminderBottomSheet.show(
+                                context: context,
+                                noteId: _currentNote.id,
+                                defaultTitle: title,
+                                defaultPreview: preview,
+                                existingReminder: rem,
+                              );
+                            },
+                            onDelete: () {
+                              ref.read(reminderServiceProvider).deleteReminder(rem.id);
+                            },
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+
                   // Body Content: Checklist or Native Flutter Quill Editor
                   if (_currentNote.isChecklist)
                     ChecklistView(
+                      noteId: _currentNote.id,
                       rawContent: NoteHelper.formatForEditor(_currentNote.content),
                       autoFocus: !_isNotePersisted &&
                           (_currentNote.title.isEmpty &&

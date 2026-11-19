@@ -474,6 +474,7 @@ class NoteHelper {
       } else if (t.startsWith('- [ ] ') || t.startsWith('- [x] ')) {
         t = t.substring(6);
       }
+      t = t.replaceAll(RegExp(r'\s*<!--id:.*?-->'), '');
       if (t.isNotEmpty) {
         buffer.writeln(t);
       }

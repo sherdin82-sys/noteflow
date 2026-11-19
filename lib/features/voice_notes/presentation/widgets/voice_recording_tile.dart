@@ -6,6 +6,9 @@ import '../../../../core/utils/audio_helper.dart';
 import '../../../../core/utils/date_formatter.dart';
 import '../../../../shared/models/voice_recording_entity.dart';
 import '../controllers/voice_player_controller.dart';
+import '../../../reminders/providers/reminder_providers.dart';
+import '../../../reminders/presentation/widgets/reminder_bottom_sheet.dart';
+import '../../../reminders/presentation/widgets/reminder_chip.dart';
 
 class VoiceRecordingTile extends ConsumerWidget {
   final VoiceRecordingEntity recording;
@@ -227,11 +230,36 @@ class VoiceRecordingTile extends ConsumerWidget {
                           ),
                         ],
                       ),
+                      Consumer(
+                        builder: (context, ref, _) {
+                          final rem = ref.watch(voiceRecordingReminderProvider(recording.id));
+                          if (rem == null) return const SizedBox.shrink();
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: ReminderChip(
+                              reminder: rem,
+                              compact: true,
+                              onTap: () {
+                                ReminderBottomSheet.show(
+                                  context: context,
+                                  noteId: recording.voiceNoteId,
+                                  voiceRecordingId: recording.id,
+                                  defaultTitle: recording.title.isNotEmpty ? recording.title : 'Voice Clip Reminder',
+                                  existingReminder: rem,
+                                );
+                              },
+                              onDelete: () {
+                                ref.read(reminderServiceProvider).deleteReminder(rem.id);
+                              },
+                            ),
+                          );
+                        },
+                      ),
                     ],
                   ),
                 ),
 
-                // More Options Menu (Rename / Delete)
+                // More Options Menu (Rename / Reminder / Delete)
                 PopupMenuButton<String>(
                   icon: Icon(Icons.more_vert_rounded, size: 20, color: secondaryTextColor),
                   padding: EdgeInsets.zero,
@@ -239,6 +267,15 @@ class VoiceRecordingTile extends ConsumerWidget {
                   onSelected: (val) {
                     if (val == 'rename') {
                       _showRenameDialog(context);
+                    } else if (val == 'reminder') {
+                      final rem = ref.read(voiceRecordingReminderProvider(recording.id));
+                      ReminderBottomSheet.show(
+                        context: context,
+                        noteId: recording.voiceNoteId,
+                        voiceRecordingId: recording.id,
+                        defaultTitle: recording.title.isNotEmpty ? recording.title : 'Voice Clip Reminder',
+                        existingReminder: rem,
+                      );
                     } else if (val == 'delete') {
                       _confirmDelete(context);
                     }
@@ -251,6 +288,16 @@ class VoiceRecordingTile extends ConsumerWidget {
                           Icon(Icons.edit_outlined, size: 18),
                           SizedBox(width: 8),
                           Text('Rename'),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'reminder',
+                      child: Row(
+                        children: [
+                          Icon(Icons.alarm_add_rounded, size: 18),
+                          SizedBox(width: 8),
+                          Text('Set Reminder'),
                         ],
                       ),
                     ),

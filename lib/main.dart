@@ -9,16 +9,29 @@ import 'features/home/presentation/home_screen.dart';
 
 import 'core/database/database_provider.dart';
 import 'core/database/local_note_repository.dart';
+import 'features/reminders/services/reminder_native_bridge.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final repo = LocalNoteRepository(
+    reminderScheduler: const NativeReminderScheduler(),
     directoryProvider: () async {
       final dir = await getApplicationDocumentsDirectory();
       return dir.path;
     },
   );
   await repo.init();
+
+  try {
+    ReminderNativeBridge.initialize();
+    final pendingActions = await ReminderNativeBridge.getPendingJournalActions();
+    if (pendingActions.isNotEmpty) {
+      await repo.applyJournalActions(pendingActions);
+    }
+    ReminderNativeBridge.onActionReceived.listen((a) {
+      repo.applyJournalActions([a]);
+    });
+  } catch (_) {}
 
   runApp(
     ProviderScope(

@@ -4,10 +4,14 @@ import 'local_note_repository.dart';
 import '../../shared/models/note_entity.dart';
 import '../../shared/models/folder_entity.dart';
 import '../../shared/models/voice_recording_entity.dart';
+import '../../features/reminders/services/reminder_native_bridge.dart';
 
 /// Provider for the singleton NoteRepository
 final noteRepositoryProvider = Provider<NoteRepository>((ref) {
-  final repo = LocalNoteRepository(seedDemoData: true);
+  final repo = LocalNoteRepository(
+    seedDemoData: true,
+    reminderScheduler: const NativeReminderScheduler(),
+  );
   ref.onDispose(() {
     (repo as dynamic).dispose?.call();
   });

@@ -11,6 +11,8 @@ import '../../../../shared/models/note_entity.dart';
 import '../../../../shared/models/folder_entity.dart';
 import '../../../../shared/models/voice_recording_entity.dart';
 import 'rich_note_preview.dart';
+import '../../../reminders/providers/reminder_providers.dart';
+import '../../../reminders/presentation/widgets/reminder_chip.dart';
 
 class NoteCard extends ConsumerWidget {
   final NoteEntity note;
@@ -224,6 +226,24 @@ class NoteCard extends ConsumerWidget {
                   ),
                 ],
               ],
+
+              // Active Reminder Chip
+              Consumer(
+                builder: (context, ref, _) {
+                  final rem = ref.watch(noteReminderProvider(note.id));
+                  if (rem == null) return const SizedBox.shrink();
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: ReminderChip(
+                        reminder: rem,
+                        compact: true,
+                      ),
+                    ),
+                  );
+                },
+              ),
 
               const SizedBox(height: 12),
 

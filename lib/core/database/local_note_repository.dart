@@ -8,20 +8,26 @@ import '../utils/audio_helper.dart';
 import 'note_repository.dart';
 import '../../features/backup/services/backup_service.dart';
 import '../../features/backup/services/restore_service.dart';
+import '../../features/reminders/services/reminder_scheduler.dart';
 
 class LocalNoteRepository implements NoteRepository {
   final List<NoteEntity> _notes = [];
   final List<FolderEntity> _folders = [];
   final List<VoiceRecordingEntity> _voiceRecordings = [];
+  final List<ReminderEntity> _reminders = [];
+
+  int _nextNotificationId = 1000;
 
   final _notesStreamController = StreamController<List<NoteEntity>>.broadcast();
   final _foldersStreamController = StreamController<List<FolderEntity>>.broadcast();
   final _recordingsStreamController = StreamController<List<VoiceRecordingEntity>>.broadcast();
+  final _remindersStreamController = StreamController<List<ReminderEntity>>.broadcast();
 
   final bool _seedDemoData;
   final bool _enableDiskPersistence;
   final String? _customStoragePath;
   final Future<String> Function()? _directoryProvider;
+  final ReminderScheduler reminderScheduler;
   File? _resolvedFile;
   bool _initialized = false;
   String _themeMode = 'dark';
@@ -38,6 +44,7 @@ class LocalNoteRepository implements NoteRepository {
     bool enableDiskPersistence = true,
     String? customStoragePath,
     Future<String> Function()? directoryProvider,
+    this.reminderScheduler = const NoOpReminderScheduler(),
   })  : _seedDemoData = seedDemoData,
         _enableDiskPersistence = enableDiskPersistence,
         _customStoragePath = customStoragePath,
@@ -82,12 +89,22 @@ class LocalNoteRepository implements NoteRepository {
             _voiceRecordings.add(VoiceRecordingEntity.fromMap(Map<String, dynamic>.from(r as Map)));
           }
 
+          if (data.containsKey('next_notification_id')) {
+            _nextNotificationId = data['next_notification_id'] as int? ?? 1000;
+          }
+          final rawReminders = data['reminders'] as List<dynamic>? ?? [];
+          _reminders.clear();
+          for (final r in rawReminders) {
+            _reminders.add(ReminderEntity.fromMap(Map<String, dynamic>.from(r as Map)));
+          }
+
           await _ensureSampleAudioFiles();
 
           _initialized = true;
           _emitNotes();
           _emitFolders();
           _emitRecordings();
+          _emitReminders();
           return;
         }
       }
@@ -194,9 +211,11 @@ class LocalNoteRepository implements NoteRepository {
       final payload = {
         'version': 1,
         'theme_mode': _themeMode,
+        'next_notification_id': _nextNotificationId,
         'folders': _folders.map((f) => f.toMap()).toList(),
         'notes': _notes.map((n) => n.toMap()).toList(),
         'voice_recordings': _voiceRecordings.map((r) => r.toMap()).toList(),
+        'reminders': _reminders.map((r) => r.toMap()).toList(),
       };
       await file.writeAsString(jsonEncode(payload), flush: true);
     } catch (_) {
@@ -357,6 +376,66 @@ class LocalNoteRepository implements NoteRepository {
     }
   }
 
+  void _emitReminders() {
+    if (!_remindersStreamController.isClosed) {
+      _remindersStreamController.add(List.unmodifiable(_reminders));
+    }
+  }
+
+  int getNextNotificationId() {
+    final id = _nextNotificationId++;
+    _saveToDisk();
+    return id;
+  }
+
+  bool applyJournalAction(Map<String, dynamic> action) {
+    return _applyJournalAction(action);
+  }
+
+  Future<void> applyJournalActions(List<Map<String, dynamic>> actions) async {
+    bool changed = false;
+    for (final a in actions) {
+      if (_applyJournalAction(a)) {
+        changed = true;
+      }
+    }
+    if (changed) {
+      await _saveToDisk();
+      _emitReminders();
+    }
+  }
+
+  bool _applyJournalAction(Map<String, dynamic> action) {
+    final actionType = action['action'] as String?;
+    final notificationId = action['notificationId'] as int? ?? -1;
+    final noteId = action['noteId'] as String? ?? '';
+    final idx = _reminders.indexWhere((r) => r.notificationId == notificationId || (noteId.isNotEmpty && r.noteId == noteId));
+    if (idx < 0) return false;
+
+    final rem = _reminders[idx];
+    if (actionType == 'snooze') {
+      final snoozedUntilMs = action['snoozedUntilMs'] as int?;
+      final snoozedDate = snoozedUntilMs != null
+          ? DateTime.fromMillisecondsSinceEpoch(snoozedUntilMs)
+          : DateTime.now().add(const Duration(minutes: 15));
+      _reminders[idx] = rem.copyWith(
+        snoozeCount: rem.snoozeCount + 1,
+        snoozedUntil: snoozedDate,
+        updatedAt: DateTime.now(),
+      );
+      return true;
+    } else if (actionType == 'markDone') {
+      _reminders[idx] = rem.copyWith(
+        isCompleted: true,
+        completedAt: DateTime.now(),
+        clearSnoozedUntil: true,
+        updatedAt: DateTime.now(),
+      );
+      return true;
+    }
+    return false;
+  }
+
   @override
   Stream<List<NoteEntity>> watchNotes({bool includeArchived = false, String? folderId}) async* {
     List<NoteEntity> filterNotes(List<NoteEntity> notes) {
@@ -392,6 +471,25 @@ class LocalNoteRepository implements NoteRepository {
       _notes.insert(0, note);
     }
     _emitNotes();
+
+    // Invalidate any checklist item reminders whose stable item tag was deleted from note content
+    final checklistReminders = _reminders.where((r) => r.noteId == note.id && r.isChecklistItemReminder).toList();
+    if (checklistReminders.isNotEmpty) {
+      final itemMatches = RegExp(r'<!--id:(.*?)-->').allMatches(note.content);
+      final existingItemIds = itemMatches.map((m) => m.group(1)).toSet();
+      bool changed = false;
+      for (final rem in checklistReminders) {
+        if (!existingItemIds.contains(rem.checklistItemId)) {
+          try {
+            reminderScheduler.cancelAlarm(rem.notificationId);
+          } catch (_) {}
+          _reminders.removeWhere((r) => r.id == rem.id);
+          changed = true;
+        }
+      }
+      if (changed) _emitReminders();
+    }
+
     await _saveToDisk();
   }
 
@@ -425,6 +523,16 @@ class LocalNoteRepository implements NoteRepository {
     }
     _voiceRecordings.removeWhere((r) => r.voiceNoteId == id);
     _emitRecordings();
+
+    // Delete all child reminders and cancel their native alarms
+    final childReminders = _reminders.where((r) => r.noteId == id).toList();
+    for (final rem in childReminders) {
+      try {
+        reminderScheduler.cancelAlarm(rem.notificationId);
+      } catch (_) {}
+    }
+    _reminders.removeWhere((r) => r.noteId == id);
+    _emitReminders();
 
     // Clean up dedicated note audio directory if it exists
     try {
@@ -563,6 +671,17 @@ class LocalNoteRepository implements NoteRepository {
       }
       _voiceRecordings.removeAt(index);
       _emitRecordings();
+
+      // Cancel and remove any reminders targeting this recording
+      final recReminders = _reminders.where((r) => r.voiceRecordingId == recordingId).toList();
+      for (final rem in recReminders) {
+        try {
+          reminderScheduler.cancelAlarm(rem.notificationId);
+        } catch (_) {}
+      }
+      _reminders.removeWhere((r) => r.voiceRecordingId == recordingId);
+      _emitReminders();
+
       await _saveToDisk();
     }
   }
@@ -613,11 +732,13 @@ class LocalNoteRepository implements NoteRepository {
   List<FolderEntity> getAllFolders() => List.unmodifiable(_folders);
   List<VoiceRecordingEntity> getAllVoiceRecordings() =>
       List.unmodifiable(_voiceRecordings);
+  List<ReminderEntity> getAllReminders() => List.unmodifiable(_reminders);
 
   Future<void> replaceAllData({
     required List<FolderEntity> folders,
     required List<NoteEntity> notes,
     required List<VoiceRecordingEntity> voiceRecordings,
+    List<ReminderEntity>? reminders,
     String? themeMode,
   }) async {
     if (themeMode != null) _themeMode = themeMode;
@@ -627,6 +748,39 @@ class LocalNoteRepository implements NoteRepository {
     _notes.addAll(notes);
     _voiceRecordings.clear();
     _voiceRecordings.addAll(voiceRecordings);
+    if (reminders != null) {
+      // Pre-cancel existing alarms before replacing data
+      for (final rem in _reminders) {
+        try {
+          reminderScheduler.cancelAlarm(rem.notificationId);
+        } catch (_) {}
+      }
+      _reminders.clear();
+      _reminders.addAll(reminders);
+
+      // Re-arm restored alarms if future and active
+      final now = DateTime.now();
+      for (final rem in reminders) {
+        if (!rem.isCompleted && rem.effectiveScheduledAt.isAfter(now)) {
+          try {
+            reminderScheduler.scheduleAlarm(
+              notificationId: rem.notificationId,
+              triggerEpochMs: rem.effectiveScheduledAt.millisecondsSinceEpoch,
+              title: rem.title,
+              body: rem.notesPreview.isNotEmpty ? rem.notesPreview : 'Note Reminder',
+              noteId: rem.noteId,
+              checklistItemId: rem.checklistItemId,
+              voiceRecordingId: rem.voiceRecordingId,
+            );
+          } catch (_) {}
+        }
+        if (rem.notificationId >= _nextNotificationId) {
+          _nextNotificationId = rem.notificationId + 1;
+        }
+      }
+
+      _emitReminders();
+    }
     _emitFolders();
     _emitNotes();
     _emitRecordings();
@@ -637,6 +791,7 @@ class LocalNoteRepository implements NoteRepository {
     required List<FolderEntity> folders,
     required List<NoteEntity> notes,
     required List<VoiceRecordingEntity> voiceRecordings,
+    List<ReminderEntity>? reminders,
     String? themeMode,
   }) async {
     if (themeMode != null) _themeMode = themeMode;
@@ -668,10 +823,160 @@ class LocalNoteRepository implements NoteRepository {
       }
     }
 
+    if (reminders != null) {
+      final now = DateTime.now();
+      for (final br in reminders) {
+        final idx = _reminders.indexWhere((r) => r.id == br.id);
+        if (idx >= 0) {
+          _reminders[idx] = br;
+        } else {
+          _reminders.add(br);
+        }
+
+        if (!br.isCompleted && br.effectiveScheduledAt.isAfter(now)) {
+          try {
+            reminderScheduler.scheduleAlarm(
+              notificationId: br.notificationId,
+              triggerEpochMs: br.effectiveScheduledAt.millisecondsSinceEpoch,
+              title: br.title,
+              body: br.notesPreview.isNotEmpty ? br.notesPreview : 'Note Reminder',
+              noteId: br.noteId,
+              checklistItemId: br.checklistItemId,
+              voiceRecordingId: br.voiceRecordingId,
+            );
+          } catch (_) {}
+        }
+
+        if (br.notificationId >= _nextNotificationId) {
+          _nextNotificationId = br.notificationId + 1;
+        }
+      }
+      _emitReminders();
+    }
+
     _emitFolders();
     _emitNotes();
     _emitRecordings();
     await _saveToDisk();
+  }
+
+  // Reminders Implementation
+  @override
+  Stream<List<ReminderEntity>> watchReminders() async* {
+    yield List.unmodifiable(_reminders);
+    yield* _remindersStreamController.stream;
+  }
+
+  @override
+  Future<List<ReminderEntity>> getReminders() async {
+    return List.unmodifiable(_reminders);
+  }
+
+  @override
+  Future<ReminderEntity?> getReminderById(String id) async {
+    try {
+      return _reminders.firstWhere((r) => r.id == id);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Future<ReminderEntity?> getReminderForNote(String noteId) async {
+    try {
+      return _reminders.firstWhere((r) => r.noteId == noteId && r.isWholeNoteReminder);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Future<ReminderEntity?> getReminderForChecklistItem(String noteId, String checklistItemId) async {
+    try {
+      return _reminders.firstWhere((r) => r.noteId == noteId && r.checklistItemId == checklistItemId);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Future<ReminderEntity?> getReminderForVoiceRecording(String voiceRecordingId) async {
+    try {
+      return _reminders.firstWhere((r) => r.voiceRecordingId == voiceRecordingId);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Future<void> saveReminder(ReminderEntity reminder) async {
+    final idx = _reminders.indexWhere((r) => r.id == reminder.id);
+    if (idx >= 0) {
+      _reminders[idx] = reminder;
+    } else {
+      _reminders.add(reminder);
+    }
+    _emitReminders();
+    await _saveToDisk();
+  }
+
+  @override
+  Future<void> deleteReminder(String id) async {
+    final rem = await getReminderById(id);
+    if (rem != null) {
+      try {
+        reminderScheduler.cancelAlarm(rem.notificationId);
+      } catch (_) {}
+    }
+    _reminders.removeWhere((r) => r.id == id);
+    _emitReminders();
+    await _saveToDisk();
+  }
+
+  @override
+  Future<void> completeReminder(String id) async {
+    final idx = _reminders.indexWhere((r) => r.id == id);
+    if (idx >= 0) {
+      final rem = _reminders[idx];
+      try {
+        reminderScheduler.cancelAlarm(rem.notificationId);
+      } catch (_) {}
+      _reminders[idx] = rem.copyWith(
+        isCompleted: true,
+        completedAt: DateTime.now(),
+        clearSnoozedUntil: true,
+        updatedAt: DateTime.now(),
+      );
+      _emitReminders();
+      await _saveToDisk();
+    }
+  }
+
+  @override
+  Future<void> snoozeReminder(String id, Duration duration) async {
+    final idx = _reminders.indexWhere((r) => r.id == id);
+    if (idx >= 0) {
+      final rem = _reminders[idx];
+      final newTime = DateTime.now().add(duration);
+      _reminders[idx] = rem.copyWith(
+        snoozeCount: rem.snoozeCount + 1,
+        snoozedUntil: newTime,
+        updatedAt: DateTime.now(),
+      );
+      try {
+        reminderScheduler.scheduleAlarm(
+          notificationId: rem.notificationId,
+          triggerEpochMs: newTime.millisecondsSinceEpoch,
+          title: rem.title,
+          body: rem.notesPreview.isNotEmpty ? rem.notesPreview : 'Note Reminder (Snoozed)',
+          noteId: rem.noteId,
+          checklistItemId: rem.checklistItemId,
+          voiceRecordingId: rem.voiceRecordingId,
+        );
+      } catch (_) {}
+      _emitReminders();
+      await _saveToDisk();
+    }
   }
 
   @override
@@ -722,12 +1027,14 @@ class LocalNoteRepository implements NoteRepository {
         'notes_count': _notes.length,
         'folders_count': _folders.length,
         'recordings_count': _voiceRecordings.length,
+        'reminders_count': _reminders.length,
         'has_audio': audioFilesCount > 0,
         'audio_files_count': audioFilesCount,
       },
       'folders': _folders.map((f) => f.toMap()).toList(),
       'notes': _notes.map((n) => n.toMap()).toList(),
       'voice_recordings': _voiceRecordings.map((r) => r.toMap()).toList(),
+      'reminders': _reminders.map((r) => r.toMap()).toList(),
       'audio_payloads': audioPayloads,
     };
   }
@@ -767,5 +1074,6 @@ class LocalNoteRepository implements NoteRepository {
     _notesStreamController.close();
     _foldersStreamController.close();
     _recordingsStreamController.close();
+    _remindersStreamController.close();
   }
 }

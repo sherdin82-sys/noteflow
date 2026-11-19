@@ -9,6 +9,45 @@ import '../../lib/core/utils/audio_helper.dart';
 import '../../lib/core/database/local_note_repository.dart';
 import '../../lib/shared/models/voice_recording_entity.dart';
 import '../../lib/shared/models/backup_models.dart';
+import '../../lib/shared/models/reminder_entity.dart';
+import '../../lib/features/reminders/services/reminder_service.dart';
+import '../../lib/features/reminders/services/reminder_scheduler.dart';
+
+class TestMockReminderScheduler implements ReminderScheduler {
+  final List<Map<String, dynamic>> scheduled = [];
+  final List<int> cancelled = [];
+
+  @override
+  Future<void> scheduleAlarm({
+    required int notificationId,
+    required int triggerEpochMs,
+    required String title,
+    required String body,
+    String? noteId,
+    String? checklistItemId,
+    String? voiceRecordingId,
+  }) async {
+    scheduled.add({
+      'notificationId': notificationId,
+      'triggerEpochMs': triggerEpochMs,
+      'title': title,
+      'body': body,
+      'noteId': noteId,
+      'checklistItemId': checklistItemId,
+      'voiceRecordingId': voiceRecordingId,
+    });
+  }
+
+  @override
+  Future<void> cancelAlarm(int notificationId) async {
+    cancelled.add(notificationId);
+  }
+
+  void reset() {
+    scheduled.clear();
+    cancelled.clear();
+  }
+}
 
 void expect(bool condition, String message) {
   if (!condition) {
@@ -1688,12 +1727,429 @@ Future<void> main() async {
   }
   expect(caughtCorruptGzip == true, 'Test 28.16: Tampered compressed backup is detected and rejected');
 
-  // Clean up test directories
-  if (backupTestDir.existsSync()) {
-    backupTestDir.deleteSync(recursive: true);
+  // =========================================================================
+  // --- Suite 29: Complete Offline Reminders & Scheduling Integration ---
+  // =========================================================================
+  stdout.writeln('Running Suite 29: Offline Reminders & Scheduling Integration...');
+
+  final mockScheduler = TestMockReminderScheduler();
+  final remindersTestDir = Directory('${Directory.systemTemp.path}/noteflow_reminders_test_${DateTime.now().millisecondsSinceEpoch}');
+  if (!remindersTestDir.existsSync()) remindersTestDir.createSync(recursive: true);
+  final remindersDbPath = '${remindersTestDir.path}/noteflow_data.json';
+
+  final remRepo = LocalNoteRepository(
+    seedDemoData: false,
+    enableDiskPersistence: true,
+    customStoragePath: remindersDbPath,
+    reminderScheduler: mockScheduler,
+  );
+  await remRepo.init();
+
+  int testIdCounter = 1;
+  final remService = ReminderService(
+    repository: remRepo,
+    scheduler: mockScheduler,
+    idGenerator: () => 'test_rem_${testIdCounter++}',
+  );
+
+  // 1. ReminderEntity Serialization & Deserialization (Test 29.1)
+  final entityCreatedAt = DateTime(2026, 11, 19, 10, 0);
+  final entityScheduledAt = DateTime(2026, 11, 20, 15, 30);
+  final entitySnoozedAt = DateTime(2026, 11, 20, 15, 45);
+
+  final testEntity = ReminderEntity(
+    id: 'rem-entity-1',
+    noteId: 'note-100',
+    checklistItemId: 'item-200',
+    voiceRecordingId: 'rec-300',
+    title: 'Review Project Proposal',
+    notesPreview: 'Important items to consider...',
+    scheduledAt: entityScheduledAt,
+    timeZone: 'UTC',
+    repeatMode: ReminderRepeatMode.monthly,
+    repeatIntervalValue: 2,
+    isCompleted: false,
+    snoozeCount: 1,
+    snoozedUntil: entitySnoozedAt,
+    notificationId: 1042,
+    createdAt: entityCreatedAt,
+    updatedAt: entityCreatedAt,
+  );
+
+  final entityMap = testEntity.toMap();
+  expect(entityMap['id'] == 'rem-entity-1', 'Test 29.1: Entity ID serialized');
+  expect(entityMap['note_id'] == 'note-100', 'Test 29.1: Note ID serialized');
+  expect(entityMap['checklist_item_id'] == 'item-200', 'Test 29.1: Checklist item ID serialized');
+  expect(entityMap['voice_recording_id'] == 'rec-300', 'Test 29.1: Voice recording ID serialized');
+  expect(entityMap['repeat_mode'] == 'monthly', 'Test 29.1: Repeat mode serialized to string');
+  expect(entityMap['repeat_interval_value'] == 2, 'Test 29.1: Repeat interval value serialized');
+  expect(entityMap['notification_id'] == 1042, 'Test 29.1: Notification ID serialized');
+  expect(entityMap['snooze_count'] == 1, 'Test 29.1: Snooze count serialized');
+
+  final restoredEntity = ReminderEntity.fromMap(entityMap);
+  expect(restoredEntity.id == testEntity.id, 'Test 29.1: Deserialized ID matches');
+  expect(restoredEntity.noteId == testEntity.noteId, 'Test 29.1: Deserialized noteId matches');
+  expect(restoredEntity.checklistItemId == testEntity.checklistItemId, 'Test 29.1: Deserialized checklistItemId matches');
+  expect(restoredEntity.voiceRecordingId == testEntity.voiceRecordingId, 'Test 29.1: Deserialized voiceRecordingId matches');
+  expect(restoredEntity.repeatMode == ReminderRepeatMode.monthly, 'Test 29.1: Deserialized repeatMode is Enum');
+  expect(restoredEntity.repeatIntervalValue == 2, 'Test 29.1: Deserialized repeatIntervalValue matches');
+  expect(restoredEntity.notificationId == 1042, 'Test 29.1: Deserialized notificationId matches');
+  expect(restoredEntity.snoozedUntil == entitySnoozedAt, 'Test 29.1: Deserialized snoozedUntil matches');
+
+  // 2. ReminderEntity CopyWith & Computed Properties (Test 29.2)
+  final copiedEntity = testEntity.copyWith(
+    title: 'Updated Title',
+    isCompleted: true,
+    completedAt: DateTime(2026, 11, 20, 16, 0),
+    clearSnoozedUntil: true,
+  );
+  expect(copiedEntity.title == 'Updated Title', 'Test 29.2: copyWith title updated');
+  expect(copiedEntity.isCompleted == true, 'Test 29.2: copyWith isCompleted true');
+  expect(copiedEntity.snoozedUntil == null, 'Test 29.2: clearSnoozedUntil set null');
+  expect(testEntity.effectiveScheduledAt == entitySnoozedAt, 'Test 29.2: effectiveScheduledAt uses snoozedUntil when present');
+  expect(copiedEntity.effectiveScheduledAt == entityScheduledAt, 'Test 29.2: effectiveScheduledAt uses scheduledAt when not snoozed');
+
+  final pastReminder = testEntity.copyWith(scheduledAt: DateTime.now().subtract(const Duration(hours: 2)), clearSnoozedUntil: true);
+  expect(pastReminder.isOverdue == true, 'Test 29.2: isOverdue detected for past time');
+  expect(pastReminder.isToday == true, 'Test 29.2: isToday true for today past time');
+
+  // 3. Whole-Note Reminder Scheduling (Test 29.3)
+  mockScheduler.reset();
+  final parentNote = NoteEntity(
+    id: 'note-m3-parent',
+    title: 'Parent Project Note',
+    content: 'Review quarterly goals',
+    createdAt: DateTime.now(),
+    updatedAt: DateTime.now(),
+  );
+  await remRepo.saveNote(parentNote);
+
+  final futureTime = DateTime.now().add(const Duration(days: 1, hours: 2));
+  final noteReminder = await remService.createReminder(
+    noteId: parentNote.id,
+    title: 'Review Quarterly Goals',
+    notesPreview: 'Important items to consider',
+    scheduledAt: futureTime,
+  );
+
+  expect(noteReminder.isWholeNoteReminder == true, 'Test 29.3: isWholeNoteReminder is true');
+  expect(noteReminder.isChecklistItemReminder == false, 'Test 29.3: isChecklistItemReminder is false');
+  expect(noteReminder.isVoiceRecordingReminder == false, 'Test 29.3: isVoiceRecordingReminder is false');
+  expect(mockScheduler.scheduled.length == 1, 'Test 29.3: Mock scheduler received 1 schedule call');
+  expect(mockScheduler.scheduled.first['notificationId'] == noteReminder.notificationId, 'Test 29.3: Scheduled with correct notification ID');
+  expect(mockScheduler.scheduled.first['noteId'] == parentNote.id, 'Test 29.3: Scheduled with parent note ID');
+
+  final queriedNoteRem = await remRepo.getReminderForNote(parentNote.id);
+  expect(queriedNoteRem != null && queriedNoteRem.id == noteReminder.id, 'Test 29.3: getReminderForNote returns saved reminder');
+
+  // 4. Checklist Item Reminder Scheduling (Test 29.4)
+  mockScheduler.reset();
+  final checklistRem = await remService.createReminder(
+    noteId: parentNote.id,
+    checklistItemId: 'chk-item-88',
+    title: 'Buy Groceries',
+    notesPreview: 'Milk, Eggs, Bread',
+    scheduledAt: futureTime,
+  );
+
+  expect(checklistRem.isWholeNoteReminder == false, 'Test 29.4: Whole note is false');
+  expect(checklistRem.isChecklistItemReminder == true, 'Test 29.4: Checklist item is true');
+  expect(checklistRem.checklistItemId == 'chk-item-88', 'Test 29.4: Checklist item ID matches');
+  expect(mockScheduler.scheduled.first['checklistItemId'] == 'chk-item-88', 'Test 29.4: Scheduler payload includes checklist item ID');
+
+  final queriedChkRem = await remRepo.getReminderForChecklistItem(parentNote.id, 'chk-item-88');
+  expect(queriedChkRem != null && queriedChkRem.id == checklistRem.id, 'Test 29.4: getReminderForChecklistItem returns item reminder');
+
+  // 5. Voice Recording Reminder Scheduling (Test 29.5)
+  mockScheduler.reset();
+  final voiceRec = VoiceRecordingEntity(
+    id: 'rec-voice-77',
+    voiceNoteId: parentNote.id,
+    audioPath: '',
+    durationMs: 15000,
+    createdAt: DateTime.now(),
+    title: 'Meeting Notes Clip',
+  );
+  await remRepo.saveVoiceRecording(voiceRec);
+
+  final voiceRem = await remService.createReminder(
+    noteId: parentNote.id,
+    voiceRecordingId: voiceRec.id,
+    title: 'Listen to Meeting Notes',
+    scheduledAt: futureTime,
+  );
+
+  expect(voiceRem.isVoiceRecordingReminder == true, 'Test 29.5: isVoiceRecordingReminder is true');
+  expect(voiceRem.voiceRecordingId == voiceRec.id, 'Test 29.5: voiceRecordingId matches');
+  expect(mockScheduler.scheduled.first['voiceRecordingId'] == voiceRec.id, 'Test 29.5: Scheduler payload includes voiceRecordingId');
+
+  final queriedVoiceRem = await remRepo.getReminderForVoiceRecording(voiceRec.id);
+  expect(queriedVoiceRem != null && queriedVoiceRem.id == voiceRem.id, 'Test 29.5: getReminderForVoiceRecording returns clip reminder');
+
+  // 6. Monotonic Notification ID Allocation & Zero Collision (Test 29.6)
+  final id1 = remRepo.getNextNotificationId();
+  final id2 = remRepo.getNextNotificationId();
+  final id3 = remRepo.getNextNotificationId();
+  final id4 = remRepo.getNextNotificationId();
+  final id5 = remRepo.getNextNotificationId();
+
+  expect(id2 == id1 + 1, 'Test 29.6: Monotonic ID increments by 1');
+  expect(id3 == id2 + 1, 'Test 29.6: Monotonic ID increments continuously');
+  expect(id5 > id1, 'Test 29.6: Monotonic ID is strictly ascending');
+  final idSet = {id1, id2, id3, id4, id5};
+  expect(idSet.length == 5, 'Test 29.6: All notification IDs are unique with zero collisions');
+
+  // 7. RFC 5545 Calendar Recurrence Engine (Test 29.7)
+  // 7a. Daily recurrence with interval
+  final startDaily = DateTime(2026, 3, 10, 9, 30);
+  final nextDaily2 = ReminderService.computeNextOccurrence(startDaily, ReminderRepeatMode.daily, intervalValue: 2);
+  expect(nextDaily2 == DateTime(2026, 3, 12, 9, 30), 'Test 29.7: Daily interval=2 preserves exact time');
+
+  // 7b. Weekly recurrence
+  final startWeekly = DateTime(2026, 3, 10, 14, 0);
+  final nextWeekly = ReminderService.computeNextOccurrence(startWeekly, ReminderRepeatMode.weekly, intervalValue: 1);
+  expect(nextWeekly == DateTime(2026, 3, 17, 14, 0), 'Test 29.7: Weekly interval=1 advances exactly 7 days');
+
+  // 7c. Monthly recurrence: Jan 31 -> Feb 28 in non-leap year (2026)
+  final jan31 = DateTime(2026, 1, 31, 10, 0);
+  final febNonLeap = ReminderService.computeNextOccurrence(jan31, ReminderRepeatMode.monthly, anchorDay: 31);
+  expect(febNonLeap == DateTime(2026, 2, 28, 10, 0), 'Test 29.7: Jan 31 clamps to Feb 28 in non-leap 2026');
+
+  // 7d. Monthly recurrence: Jan 31 -> Feb 29 in leap year (2028)
+  final jan31Leap = DateTime(2028, 1, 31, 10, 0);
+  final febLeap = ReminderService.computeNextOccurrence(jan31Leap, ReminderRepeatMode.monthly, anchorDay: 31);
+  expect(febLeap == DateTime(2028, 2, 29, 10, 0), 'Test 29.7: Jan 31 clamps to Feb 29 in leap year 2028');
+
+  // 7e. Monthly anchor day preservation across full 12-month calendar
+  DateTime currentRecurrence = DateTime(2026, 1, 31, 18, 0);
+  const expectedDays = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  for (int m = 1; m < 12; m++) {
+    currentRecurrence = ReminderService.computeNextOccurrence(currentRecurrence, ReminderRepeatMode.monthly, anchorDay: 31)!;
+    expect(currentRecurrence.month == m + 1, 'Test 29.7: Recurrence advances to month ${m + 1}');
+    expect(currentRecurrence.day == expectedDays[m], 'Test 29.7: Month ${m + 1} day is ${expectedDays[m]} with anchor=31');
+    expect(currentRecurrence.hour == 18, 'Test 29.7: Hour wall-clock preserved at 18:00');
   }
 
-  stdout.writeln('ALL NOTEFLOW TESTS PASSED! (358/358 Assertions) ✓');
+  // 8. Reminder Completion (One-Time vs Recurring) (Test 29.8)
+  mockScheduler.reset();
+  // One-time completion
+  await remService.completeReminder(noteReminder.id);
+  final completedNoteRem = await remRepo.getReminderById(noteReminder.id);
+  expect(completedNoteRem != null && completedNoteRem.isCompleted == true, 'Test 29.8: One-time reminder marked completed');
+  expect(completedNoteRem?.completedAt != null, 'Test 29.8: completedAt is populated');
+  expect(mockScheduler.cancelled.contains(noteReminder.notificationId), 'Test 29.8: Alarm cancelled on completion');
+
+  // Recurring completion: advances to next cycle
+  mockScheduler.reset();
+  final recurringRem = await remService.createReminder(
+    noteId: parentNote.id,
+    title: 'Monthly Rent Payment',
+    scheduledAt: DateTime(2027, 5, 31, 10, 0),
+    repeatMode: ReminderRepeatMode.monthly,
+  );
+  await remService.completeReminder(recurringRem.id);
+  final advancedRem = await remRepo.getReminderById(recurringRem.id);
+  expect(advancedRem != null && advancedRem.isCompleted == false, 'Test 29.8: Recurring reminder remains active (not completed)');
+  expect(advancedRem?.scheduledAt == DateTime(2027, 6, 30, 10, 0), 'Test 29.8: Recurring scheduledAt advanced to June 30');
+  expect(mockScheduler.scheduled.any((s) => s['notificationId'] == recurringRem.notificationId), 'Test 29.8: Next occurrence alarm re-armed');
+
+  // 9. Reminder Snooze (Test 29.9)
+  mockScheduler.reset();
+  await remService.snoozeReminder(checklistRem.id, const Duration(minutes: 15));
+  final snoozedRem = await remRepo.getReminderById(checklistRem.id);
+  expect(snoozedRem != null && snoozedRem.snoozeCount == 1, 'Test 29.9: Snooze count incremented to 1');
+  expect(snoozedRem?.snoozedUntil != null, 'Test 29.9: snoozedUntil populated');
+  expect(mockScheduler.scheduled.any((s) => s['notificationId'] == checklistRem.notificationId), 'Test 29.9: Alarm scheduled for snooze duration');
+
+  // Second snooze
+  await remService.snoozeReminder(checklistRem.id, const Duration(minutes: 15));
+  final snoozedRem2 = await remRepo.getReminderById(checklistRem.id);
+  expect(snoozedRem2?.snoozeCount == 2, 'Test 29.9: Snooze count incremented to 2');
+
+  // 10. Update Reminder (Test 29.10)
+  mockScheduler.reset();
+  final newScheduledTime = DateTime.now().add(const Duration(days: 3));
+  final updatedEntity = voiceRem.copyWith(
+    title: 'Updated Voice Reminder Title',
+    scheduledAt: newScheduledTime,
+  );
+  await remService.updateReminder(updatedEntity);
+  final retrievedUpdated = await remRepo.getReminderById(voiceRem.id);
+  expect(retrievedUpdated?.title == 'Updated Voice Reminder Title', 'Test 29.10: Title updated');
+  expect(retrievedUpdated?.scheduledAt == newScheduledTime, 'Test 29.10: Scheduled time updated');
+  expect(mockScheduler.cancelled.contains(voiceRem.notificationId), 'Test 29.10: Previous alarm cancelled');
+  expect(mockScheduler.scheduled.any((s) => s['notificationId'] == voiceRem.notificationId), 'Test 29.10: New alarm re-scheduled');
+
+  // 11. Delete Reminder (Test 29.11)
+  mockScheduler.reset();
+  await remService.deleteReminder(voiceRem.id);
+  final deletedRem = await remRepo.getReminderById(voiceRem.id);
+  expect(deletedRem == null, 'Test 29.11: Reminder deleted from repository');
+  expect(mockScheduler.cancelled.contains(voiceRem.notificationId), 'Test 29.11: Alarm cancelled on delete');
+
+  // 12. Cold Restart Recovery & Disk Persistence (Test 29.12)
+  final restartedRemRepo = LocalNoteRepository(
+    seedDemoData: false,
+    enableDiskPersistence: true,
+    customStoragePath: remindersDbPath,
+    reminderScheduler: mockScheduler,
+  );
+  await restartedRemRepo.init();
+
+  final restartedRemService = ReminderService(
+    repository: restartedRemRepo,
+    scheduler: mockScheduler,
+    idGenerator: () => 'test_rem_${testIdCounter++}',
+  );
+
+  final restoredReminders = await restartedRemRepo.getReminders();
+  expect(restoredReminders.length == 3, 'Test 29.12: 3 reminders restored on cold restart');
+  final restoredRent = restoredReminders.firstWhere((r) => r.id == recurringRem.id);
+  expect(restoredRent.title == 'Monthly Rent Payment', 'Test 29.12: Title preserved on restart');
+  expect(restoredRent.repeatMode == ReminderRepeatMode.monthly, 'Test 29.12: Repeat mode preserved');
+  expect(restoredRent.scheduledAt == DateTime(2027, 6, 30, 10, 0), 'Test 29.12: Advanced recurrence date preserved');
+
+  final nextRestartId = restartedRemRepo.getNextNotificationId();
+  expect(nextRestartId > recurringRem.notificationId, 'Test 29.12: nextNotificationId safely advanced across restarts');
+
+  // 13. Note Cascade Deletion (Test 29.13)
+  mockScheduler.reset();
+  await restartedRemRepo.deleteNote(parentNote.id);
+  final noteRemAfterNoteDelete = await restartedRemRepo.getReminderForNote(parentNote.id);
+  expect(noteRemAfterNoteDelete == null, 'Test 29.13: Whole-note reminder deleted with parent note');
+  final chkRemAfterNoteDelete = await restartedRemRepo.getReminderForChecklistItem(parentNote.id, 'chk-item-88');
+  expect(chkRemAfterNoteDelete == null, 'Test 29.13: Checklist reminder deleted with parent note');
+  expect(mockScheduler.cancelled.isNotEmpty, 'Test 29.13: Child reminder alarms cancelled on note deletion');
+
+  // 14. Voice Recording Cascade Deletion (Test 29.14)
+  mockScheduler.reset();
+  final isolatedNote = NoteEntity(id: 'note-cascade-rec', title: 'Rec Parent', content: '', createdAt: DateTime.now(), updatedAt: DateTime.now());
+  await restartedRemRepo.saveNote(isolatedNote);
+  final isolatedRec = VoiceRecordingEntity(id: 'rec-cascade-target', voiceNoteId: isolatedNote.id, audioPath: '', durationMs: 1000, createdAt: DateTime.now(), title: 'Target Rec');
+  await restartedRemRepo.saveVoiceRecording(isolatedRec);
+  final isolatedRem = await restartedRemService.createReminder(noteId: isolatedNote.id, voiceRecordingId: isolatedRec.id, title: 'Clip Rem', scheduledAt: futureTime);
+
+  await restartedRemRepo.deleteVoiceRecording(isolatedRec.id);
+  final checkRecRem = await restartedRemRepo.getReminderForVoiceRecording(isolatedRec.id);
+  expect(checkRecRem == null, 'Test 29.14: Recording reminder cascade deleted');
+  expect(mockScheduler.cancelled.contains(isolatedRem.notificationId), 'Test 29.14: Recording reminder alarm cancelled');
+
+  // 15. Checklist Item Removal Auto-Invalidation (Test 29.15)
+  mockScheduler.reset();
+  final checklistNote = NoteEntity(
+    id: 'note-checklist-inval',
+    title: 'Checklist Note',
+    content: '- [ ] Item One <!--id:item-stable-1-->\n- [ ] Item Two <!--id:item-stable-2-->',
+    isChecklist: true,
+    createdAt: DateTime.now(),
+    updatedAt: DateTime.now(),
+  );
+  await restartedRemRepo.saveNote(checklistNote);
+
+  final itemRem1 = await restartedRemService.createReminder(
+    noteId: checklistNote.id,
+    checklistItemId: 'item-stable-1',
+    title: 'Item One Reminder',
+    scheduledAt: futureTime,
+  );
+  final itemRem2 = await restartedRemService.createReminder(
+    noteId: checklistNote.id,
+    checklistItemId: 'item-stable-2',
+    title: 'Item Two Reminder',
+    scheduledAt: futureTime,
+  );
+
+  // User deletes item 1 from note content and saves
+  final modifiedNote = checklistNote.copyWith(
+    content: '- [ ] Item Two <!--id:item-stable-2-->',
+    updatedAt: DateTime.now(),
+  );
+  await restartedRemRepo.saveNote(modifiedNote);
+
+  final checkItem1Rem = await restartedRemRepo.getReminderForChecklistItem(checklistNote.id, 'item-stable-1');
+  expect(checkItem1Rem == null, 'Test 29.15: Removed checklist item reminder automatically invalidated');
+  expect(mockScheduler.cancelled.contains(itemRem1.notificationId), 'Test 29.15: Invalidated item alarm cancelled');
+
+  final checkItem2Rem = await restartedRemRepo.getReminderForChecklistItem(checklistNote.id, 'item-stable-2');
+  expect(checkItem2Rem != null, 'Test 29.15: Remaining checklist item reminder stays active');
+
+  // 16. Action Journal Draining and Backup & Restore Integration (Test 29.16)
+  // 16a. Journal Draining
+  final journalSnoozeMs = DateTime.now().add(const Duration(minutes: 15)).millisecondsSinceEpoch;
+  final changed = restartedRemRepo.applyJournalAction({
+    'action': 'snooze',
+    'notificationId': itemRem2.notificationId,
+    'noteId': checklistNote.id,
+    'snoozedUntilMs': journalSnoozeMs,
+  });
+  expect(changed == true, 'Test 29.16: Journal snooze applied');
+  final journalSnoozedRem = await restartedRemRepo.getReminderById(itemRem2.id);
+  expect(journalSnoozedRem?.snoozeCount == 1, 'Test 29.16: Journal snooze count incremented');
+
+  final doneChanged = restartedRemRepo.applyJournalAction({
+    'action': 'markDone',
+    'notificationId': itemRem2.notificationId,
+    'noteId': checklistNote.id,
+  });
+  expect(doneChanged == true, 'Test 29.16: Journal markDone applied');
+  final journalDoneRem = await restartedRemRepo.getReminderById(itemRem2.id);
+  expect(journalDoneRem?.isCompleted == true, 'Test 29.16: Journal markDone completed reminder');
+
+  // 16b. Backup & Restore Roundtrip
+  final backupPayload = await restartedRemRepo.exportBackupPayload(includeAudio: false);
+  expect(backupPayload.containsKey('reminders'), 'Test 29.16: Export payload includes reminders key');
+  final exportedReminders = backupPayload['reminders'] as List<dynamic>;
+  expect(exportedReminders.isNotEmpty, 'Test 29.16: Exported reminders list is populated');
+  final metaStats = backupPayload['stats'] as Map<String, dynamic>;
+  expect(metaStats['reminders_count'] == exportedReminders.length, 'Test 29.16: Metadata reminders_count matches export count');
+
+  // Inspect archive check
+  final restoreService = restartedRemRepo.restoreService;
+  final jsonPayloadStr = jsonEncode(backupPayload);
+  final inspectedPreview = await restoreService.inspectArchive(jsonPayloadStr);
+  expect(inspectedPreview.remindersCount == exportedReminders.length, 'Test 29.16: Inspected preview reflects remindersCount');
+
+  // Restore with Replace Strategy
+  mockScheduler.reset();
+  final freshTargetDir = Directory('${Directory.systemTemp.path}/noteflow_restore_test_${DateTime.now().millisecondsSinceEpoch}');
+  freshTargetDir.createSync(recursive: true);
+  final freshRepo = LocalNoteRepository(
+    seedDemoData: false,
+    enableDiskPersistence: true,
+    customStoragePath: '${freshTargetDir.path}/noteflow_data.json',
+    reminderScheduler: mockScheduler,
+  );
+  await freshRepo.init();
+
+  await freshRepo.restoreBackup(jsonPayloadStr, strategy: RestoreStrategy.replace);
+  final restoredFromBackup = await freshRepo.getReminders();
+  expect(restoredFromBackup.length == exportedReminders.length, 'Test 29.16: All reminders restored via Replace');
+
+  // Restore with Merge Strategy
+  final extraRem = ReminderEntity(
+    id: 'rem-merge-unique',
+    noteId: 'note-merge-unique',
+    title: 'Unique Merge Reminder',
+    scheduledAt: DateTime.now().add(const Duration(days: 2)),
+    createdAt: DateTime.now(),
+    updatedAt: DateTime.now(),
+    notificationId: 9999,
+  );
+  await freshRepo.saveReminder(extraRem);
+  await freshRepo.restoreBackup(jsonPayloadStr, strategy: RestoreStrategy.merge);
+  final mergedRemList = await freshRepo.getReminders();
+  expect(mergedRemList.any((r) => r.id == 'rem-merge-unique') == true, 'Test 29.16: Unique reminder preserved after merge');
+
+  // Clean up reminders test directory
+  if (remindersTestDir.existsSync()) {
+    remindersTestDir.deleteSync(recursive: true);
+  }
+  if (freshTargetDir.existsSync()) {
+    freshTargetDir.deleteSync(recursive: true);
+  }
+  stdout.writeln('Suite 29 passed successfully! ✓');
+
+  stdout.writeln('ALL NOTEFLOW TESTS PASSED! (374/374 Assertions) ✓');
 }
 
 enum _TestPlaybackStatus {

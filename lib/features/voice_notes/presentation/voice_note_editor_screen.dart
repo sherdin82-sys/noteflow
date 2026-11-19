@@ -12,6 +12,9 @@ import '../../editor/presentation/widgets/color_tint_picker.dart';
 import 'controllers/voice_player_controller.dart';
 import 'widgets/live_recording_modal.dart';
 import 'widgets/voice_recording_tile.dart';
+import '../../reminders/providers/reminder_providers.dart';
+import '../../reminders/presentation/widgets/reminder_bottom_sheet.dart';
+import '../../reminders/presentation/widgets/reminder_chip.dart';
 
 class VoiceNoteEditorScreen extends ConsumerStatefulWidget {
   final String? noteId;
@@ -454,6 +457,35 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
               onPressed: () => _showFolderSelector(foldersAsync.value ?? []),
             ),
 
+            // Reminder Action
+            Consumer(
+              builder: (context, ref, _) {
+                final rem = ref.watch(noteReminderProvider(_currentNote.id));
+                final hasReminder = rem != null;
+
+                return IconButton(
+                  icon: Icon(
+                    hasReminder ? Icons.alarm_on_rounded : Icons.alarm_add_rounded,
+                    color: hasReminder ? AppColors.primary : secondaryTextColor,
+                  ),
+                  tooltip: hasReminder ? 'Edit Reminder' : 'Set Reminder',
+                  onPressed: () async {
+                    await _saveNoteImmediate();
+                    if (!context.mounted) return;
+                    final title = _titleController.text.trim().isNotEmpty
+                        ? _titleController.text.trim()
+                        : 'Voice Note Reminder';
+                    ReminderBottomSheet.show(
+                      context: context,
+                      noteId: _currentNote.id,
+                      defaultTitle: title,
+                      existingReminder: rem,
+                    );
+                  },
+                );
+              },
+            ),
+
             // More Options Menu
             PopupMenuButton<String>(
               icon: Icon(Icons.more_vert_rounded, color: secondaryTextColor),
@@ -520,6 +552,37 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
                     onChanged: (_) => _triggerAutoSave(),
                   ),
                   const SizedBox(height: 12),
+
+                  // Active Note Reminder Chip
+                  Consumer(
+                    builder: (context, ref, _) {
+                      final rem = ref.watch(noteReminderProvider(_currentNote.id));
+                      if (rem == null) return const SizedBox.shrink();
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: ReminderChip(
+                            reminder: rem,
+                            onTap: () {
+                              final title = _titleController.text.trim().isNotEmpty
+                                  ? _titleController.text.trim()
+                                  : 'Voice Note Reminder';
+                              ReminderBottomSheet.show(
+                                context: context,
+                                noteId: _currentNote.id,
+                                defaultTitle: title,
+                                existingReminder: rem,
+                              );
+                            },
+                            onDelete: () {
+                              ref.read(reminderServiceProvider).deleteReminder(rem.id);
+                            },
+                          ),
+                        ),
+                      );
+                    },
+                  ),
 
                   // Mode Selector Tabs (List Mode vs Checklist Mode)
                   Row(
