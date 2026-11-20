@@ -7,21 +7,25 @@ import '../../../../shared/models/folder_entity.dart';
 class FolderFilterBar extends StatelessWidget {
   final List<FolderEntity> folders;
   final String? selectedFolderId;
+  final bool isFavoritesSelected;
   final ValueChanged<String?> onSelectFolder;
+  final VoidCallback onSelectFavorites;
   final VoidCallback onAddFolder;
 
   const FolderFilterBar({
     super.key,
     required this.folders,
     required this.selectedFolderId,
+    this.isFavoritesSelected = false,
     required this.onSelectFolder,
+    required this.onSelectFavorites,
     required this.onAddFolder,
   });
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final isAllSelected = selectedFolderId == null;
+    final isAllSelected = selectedFolderId == null && !isFavoritesSelected;
 
     return SizedBox(
       height: 40,
@@ -38,12 +42,22 @@ class FolderFilterBar extends StatelessWidget {
           ),
           const SizedBox(width: 8),
 
+          // "★ Favorites" chip
+          _buildChip(
+            context: context,
+            label: '★ Favorites',
+            isSelected: isFavoritesSelected,
+            selectedColor: AppColors.pinColor,
+            onTap: onSelectFavorites,
+          ),
+          const SizedBox(width: 8),
+
           // Dynamic folder chips
           for (final folder in folders) ...[
             _buildChip(
               context: context,
               label: folder.name,
-              isSelected: selectedFolderId == folder.id,
+              isSelected: selectedFolderId == folder.id && !isFavoritesSelected,
               onTap: () => onSelectFolder(folder.id),
             ),
             const SizedBox(width: 8),
@@ -93,11 +107,12 @@ class FolderFilterBar extends StatelessWidget {
     required BuildContext context,
     required String label,
     required bool isSelected,
+    Color? selectedColor,
     required VoidCallback onTap,
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    final selectedBg = isDark ? AppColors.primary : AppColors.primary;
+    final selectedBg = selectedColor ?? AppColors.primary;
     final unselectedBg = isDark ? AppColors.darkSurfaceVariant : AppColors.lightSurfaceVariant;
 
     const selectedText = Colors.white;

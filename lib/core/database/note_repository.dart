@@ -1,10 +1,12 @@
 import 'dart:io';
 import '../../shared/models/note_entity.dart';
 import '../../shared/models/folder_entity.dart';
+import '../../shared/models/tag_entity.dart';
 import '../../shared/models/voice_recording_entity.dart';
 import '../../shared/models/backup_models.dart';
 import '../../shared/models/reminder_entity.dart';
 
+export '../../shared/models/tag_entity.dart';
 export '../../shared/models/backup_models.dart';
 export '../../shared/models/reminder_entity.dart';
 
@@ -27,6 +29,9 @@ abstract class NoteRepository {
   /// Toggle archive status
   Future<void> toggleArchive(String id);
 
+  /// Toggle favorite status
+  Future<void> toggleFavorite(String id);
+
   /// Stream of folders
   Stream<List<FolderEntity>> watchFolders();
 
@@ -35,6 +40,21 @@ abstract class NoteRepository {
 
   /// Delete folder
   Future<void> deleteFolder(String id);
+
+  /// Stream of all tags
+  Stream<List<TagEntity>> watchTags();
+
+  /// Get all tags
+  Future<List<TagEntity>> getTags();
+
+  /// Get tag by ID
+  Future<TagEntity?> getTagById(String id);
+
+  /// Create or update tag
+  Future<void> saveTag(TagEntity tag);
+
+  /// Delete tag and cascade removal from notes
+  Future<void> deleteTag(String id);
 
   /// Stream of voice recordings for a specific voice note
   Stream<List<VoiceRecordingEntity>> watchVoiceRecordings(String voiceNoteId);
@@ -105,4 +125,3 @@ abstract class NoteRepository {
   /// Snooze reminder
   Future<void> snoozeReminder(String id, Duration duration);
 }
-

@@ -13,6 +13,7 @@ import '../../../../shared/models/voice_recording_entity.dart';
 import 'rich_note_preview.dart';
 import '../../../reminders/providers/reminder_providers.dart';
 import '../../../reminders/presentation/widgets/reminder_chip.dart';
+import '../../../tags/presentation/widgets/tag_chip.dart';
 
 class NoteCard extends ConsumerWidget {
   final NoteEntity note;
@@ -20,6 +21,7 @@ class NoteCard extends ConsumerWidget {
   final VoidCallback onTap;
   final VoidCallback onTogglePin;
   final VoidCallback onToggleArchive;
+  final VoidCallback? onToggleFavorite;
   final VoidCallback onDelete;
 
   const NoteCard({
@@ -29,6 +31,7 @@ class NoteCard extends ConsumerWidget {
     required this.onTap,
     required this.onTogglePin,
     required this.onToggleArchive,
+    this.onToggleFavorite,
     required this.onDelete,
   });
 
@@ -86,6 +89,14 @@ class NoteCard extends ConsumerWidget {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
+                  if (note.isFavorite) ...[
+                    const SizedBox(width: 8),
+                    const Icon(
+                      Icons.star_rounded,
+                      size: 18,
+                      color: AppColors.pinColor,
+                    ),
+                  ],
                   if (note.isPinned) ...[
                     const SizedBox(width: 8),
                     const Icon(
@@ -244,6 +255,27 @@ class NoteCard extends ConsumerWidget {
                   );
                 },
               ),
+
+              // Assigned Tags
+              if (note.tagIds.isNotEmpty) ...[
+                Consumer(
+                  builder: (context, ref, _) {
+                    final tagsAsync = ref.watch(tagsStreamProvider);
+                    final allTags = tagsAsync.value ?? [];
+                    final noteTags = allTags.where((t) => note.tagIds.contains(t.id)).toList();
+                    if (noteTags.isEmpty) return const SizedBox.shrink();
+
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Wrap(
+                        spacing: 6,
+                        runSpacing: 4,
+                        children: noteTags.map((t) => TagChip(tag: t, compact: true)).toList(),
+                      ),
+                    );
+                  },
+                ),
+              ],
 
               const SizedBox(height: 12),
 
@@ -518,6 +550,9 @@ class NoteCard extends ConsumerWidget {
           case 'pin':
             onTogglePin();
             break;
+          case 'favorite':
+            onToggleFavorite?.call();
+            break;
           case 'archive':
             onToggleArchive();
             break;
@@ -537,6 +572,20 @@ class NoteCard extends ConsumerWidget {
               ),
               const SizedBox(width: 8),
               Text(note.isPinned ? 'Unpin' : 'Pin'),
+            ],
+          ),
+        ),
+        PopupMenuItem(
+          value: 'favorite',
+          child: Row(
+            children: [
+              Icon(
+                note.isFavorite ? Icons.star_rounded : Icons.star_outline_rounded,
+                size: 18,
+                color: AppColors.pinColor,
+              ),
+              const SizedBox(width: 8),
+              Text(note.isFavorite ? 'Remove from Favorites' : 'Add to Favorites'),
             ],
           ),
         ),

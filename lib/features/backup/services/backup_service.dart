@@ -32,6 +32,7 @@ class BackupService {
     final baseDir = await getBaseDirectory();
 
     final folders = repository.getAllFolders();
+    final tags = repository.getAllTags();
     final notes = repository.getAllNotes();
     final recordings = repository.getAllVoiceRecordings();
     final themeMode = repository.themeMode;
@@ -84,18 +85,20 @@ class BackupService {
       'app': 'NoteFlow',
       'app_identifier': 'com.noteflow.app',
       'version': 1,
-      'backup_version': 1,
+      'backup_version': 2,
       'created_at': now.toIso8601String(),
       'theme_mode': themeMode,
       'stats': {
         'notes_count': notes.length,
         'folders_count': folders.length,
+        'tags_count': tags.length,
         'recordings_count': recordings.length,
         'has_audio': audioFilesCount > 0,
         'audio_files_count': audioFilesCount,
         'total_audio_bytes': totalAudioBytes,
       },
       'folders': folders.map((f) => f.toMap()).toList(),
+      'tags': tags.map((t) => t.toMap()).toList(),
       'notes': notes.map((n) => n.toMap()).toList(),
       'voice_recordings': recordings.map((r) => r.toMap()).toList(),
       'audio_payloads': audioPayloads,

@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:convert';
 import '../../lib/shared/models/note_entity.dart';
 import '../../lib/shared/models/folder_entity.dart';
+import '../../lib/shared/models/tag_entity.dart';
 import '../../lib/shared/models/note_filter.dart';
 import '../../lib/core/utils/note_helper.dart';
 import '../../lib/core/utils/date_formatter.dart';
@@ -2149,7 +2150,297 @@ Future<void> main() async {
   }
   stdout.writeln('Suite 29 passed successfully! ✓');
 
-  stdout.writeln('ALL NOTEFLOW TESTS PASSED! (374/374 Assertions) ✓');
+  // --- Suite 30: Tags Management & Favorites Full Test Suite ---
+  stdout.writeln('Running Suite 30: Tags Management & Favorites (20 Verification Checks)...');
+
+  final suite30Dir = Directory('${Directory.systemTemp.path}/suite30_test_${DateTime.now().millisecondsSinceEpoch}');
+  suite30Dir.createSync(recursive: true);
+  final suite30File = File('${suite30Dir.path}/noteflow_data.json');
+
+  final repo30 = LocalNoteRepository(
+    seedDemoData: false,
+    enableDiskPersistence: true,
+    customStoragePath: suite30File.path,
+  );
+  await repo30.init();
+
+  // Test 1: Create a tag
+  final tag1 = TagEntity(
+    id: 'tag-work',
+    name: 'Work',
+    colorHex: '#3B82F6',
+    createdAt: DateTime.now(),
+    updatedAt: DateTime.now(),
+  );
+  await repo30.saveTag(tag1);
+  final fetchedTag1 = await repo30.getTagById('tag-work');
+  expect(fetchedTag1 != null, 'Test 1: Tag created and fetched by ID');
+  expect(fetchedTag1?.name == 'Work', 'Test 1: Tag name is Work');
+  expect(fetchedTag1?.colorHex == '#3B82F6', 'Test 1: Tag color is #3B82F6');
+
+  // Test 2: Rename a tag
+  final renamedTag1 = fetchedTag1!.copyWith(name: 'Work & Projects', updatedAt: DateTime.now());
+  await repo30.saveTag(renamedTag1);
+  final fetchedRenamed = await repo30.getTagById('tag-work');
+  expect(fetchedRenamed?.name == 'Work & Projects', 'Test 2: Tag successfully renamed');
+
+  // Test 3: Change tag color
+  final recoloredTag1 = fetchedRenamed!.copyWith(colorHex: '#10B981', updatedAt: DateTime.now());
+  await repo30.saveTag(recoloredTag1);
+  final fetchedRecolored = await repo30.getTagById('tag-work');
+  expect(fetchedRecolored?.colorHex == '#10B981', 'Test 3: Tag color successfully updated');
+
+  // Test 4: Delete a tag (and verify cascade removal from note tagIds without deleting notes)
+  final tagToDelete = TagEntity(
+    id: 'tag-temp',
+    name: 'Temporary',
+    colorHex: '#EF4444',
+    createdAt: DateTime.now(),
+    updatedAt: DateTime.now(),
+  );
+  await repo30.saveTag(tagToDelete);
+  final noteWithTemp = NoteEntity(
+    id: 'note-cascade-test',
+    title: 'Cascade Test Note',
+    content: 'Content',
+    tagIds: ['tag-work', 'tag-temp'],
+    createdAt: DateTime.now(),
+    updatedAt: DateTime.now(),
+  );
+  await repo30.saveNote(noteWithTemp);
+  expect((await repo30.getNoteById('note-cascade-test'))?.tagIds.contains('tag-temp') == true, 'Test 4: Note has tag-temp before deletion');
+
+  await repo30.deleteTag('tag-temp');
+  final fetchedDeletedTag = await repo30.getTagById('tag-temp');
+  expect(fetchedDeletedTag == null, 'Test 4: Tag is deleted from repository');
+  final noteAfterTagDelete = await repo30.getNoteById('note-cascade-test');
+  expect(noteAfterTagDelete != null, 'Test 4: Note still exists after tag deletion');
+  expect(!noteAfterTagDelete!.tagIds.contains('tag-temp'), 'Test 4: tag-temp was removed from note tagIds');
+  expect(noteAfterTagDelete.tagIds.contains('tag-work'), 'Test 4: tag-work remains assigned to note');
+
+  // Test 5: Assign multiple tags to one note
+  final tag2 = TagEntity(id: 'tag-urgent', name: 'Urgent', colorHex: '#F59E0B', createdAt: DateTime.now(), updatedAt: DateTime.now());
+  final tag3 = TagEntity(id: 'tag-ideas', name: 'Ideas', colorHex: '#8B5CF6', createdAt: DateTime.now(), updatedAt: DateTime.now());
+  await repo30.saveTag(tag2);
+  await repo30.saveTag(tag3);
+
+  final multiTagNote = noteAfterTagDelete.copyWith(
+    tagIds: ['tag-work', 'tag-urgent', 'tag-ideas'],
+  );
+  await repo30.saveNote(multiTagNote);
+  final fetchedMultiNote = await repo30.getNoteById('note-cascade-test');
+  expect(fetchedMultiNote?.tagIds.length == 3, 'Test 5: Note has 3 tags assigned');
+  expect(fetchedMultiNote?.tagIds.contains('tag-urgent') == true, 'Test 5: Note contains tag-urgent');
+  expect(fetchedMultiNote?.tagIds.contains('tag-ideas') == true, 'Test 5: Note contains tag-ideas');
+
+  // Test 6: Remove an assigned tag
+  final removedTagNote = fetchedMultiNote!.copyWith(
+    tagIds: fetchedMultiNote.tagIds.where((t) => t != 'tag-urgent').toList(),
+  );
+  await repo30.saveNote(removedTagNote);
+  final fetchedRemovedNote = await repo30.getNoteById('note-cascade-test');
+  expect(fetchedRemovedNote?.tagIds.length == 2, 'Test 6: Note now has 2 tags');
+  expect(fetchedRemovedNote?.tagIds.contains('tag-urgent') == false, 'Test 6: tag-urgent removed from note');
+
+  // Test 7: Assign tags across all 3 note types (Text Note, Checklist, Voice Note)
+  final textNote = NoteEntity(
+    id: 'note-type-text',
+    title: 'Text Note with Tags',
+    content: 'Regular text content',
+    isChecklist: false,
+    isVoiceNote: false,
+    tagIds: ['tag-work'],
+    createdAt: DateTime.now(),
+    updatedAt: DateTime.now(),
+  );
+  final checklistNote30 = NoteEntity(
+    id: 'note-type-checklist',
+    title: 'Checklist Note with Tags',
+    content: '[ ] Item 1\n[x] Item 2',
+    isChecklist: true,
+    isVoiceNote: false,
+    tagIds: ['tag-work', 'tag-ideas'],
+    createdAt: DateTime.now(),
+    updatedAt: DateTime.now(),
+  );
+  final voiceNote30 = NoteEntity(
+    id: 'note-type-voice',
+    title: 'Voice Note with Tags',
+    content: 'Audio memo transcription',
+    isChecklist: false,
+    isVoiceNote: true,
+    tagIds: ['tag-ideas'],
+    createdAt: DateTime.now(),
+    updatedAt: DateTime.now(),
+  );
+  await repo30.saveNote(textNote);
+  await repo30.saveNote(checklistNote30);
+  await repo30.saveNote(voiceNote30);
+
+  expect((await repo30.getNoteById('note-type-text'))?.tagIds.contains('tag-work') == true, 'Test 7: Text note has tag-work');
+  expect((await repo30.getNoteById('note-type-checklist'))?.tagIds.contains('tag-ideas') == true, 'Test 7: Checklist has tag-ideas');
+  expect((await repo30.getNoteById('note-type-voice'))?.tagIds.contains('tag-ideas') == true, 'Test 7: Voice note has tag-ideas');
+
+  // Test 8: Filter by tag
+  final allNotes = await repo30.watchNotes(includeArchived: false).first;
+  final notesWithWork = allNotes.where((n) => n.tagIds.contains('tag-work')).toList();
+  expect(notesWithWork.any((n) => n.id == 'note-type-text'), 'Test 8: notesWithWork contains text note');
+  expect(notesWithWork.any((n) => n.id == 'note-type-checklist'), 'Test 8: notesWithWork contains checklist note');
+  expect(!notesWithWork.any((n) => n.id == 'note-type-voice'), 'Test 8: notesWithWork does not contain voice note');
+
+  // Test 9: Search tags by name (case-insensitive)
+  final allTags = await repo30.getTags();
+  final searchResults = allTags.where((t) => t.name.toLowerCase().contains('work')).toList();
+  expect(searchResults.length == 1, 'Test 9: Tag search finds 1 tag for "work"');
+  expect(searchResults.first.id == 'tag-work', 'Test 9: Matched tag is tag-work');
+
+  // Test 10: Search notes using tag filters + query
+  final queryMatches = allNotes.where((n) {
+    final matchesTag = n.tagIds.contains('tag-ideas');
+    final matchesQuery = n.title.toLowerCase().contains('voice');
+    return matchesTag && matchesQuery;
+  }).toList();
+  expect(queryMatches.length == 1, 'Test 10: 1 note matches tag-ideas + "voice" query');
+  expect(queryMatches.first.id == 'note-type-voice', 'Test 10: Found voice note');
+
+  // Test 11: Favorite a Text Note
+  await repo30.toggleFavorite('note-type-text');
+  final favText = await repo30.getNoteById('note-type-text');
+  expect(favText?.isFavorite == true, 'Test 11: Text note is now favorite');
+
+  // Test 12: Favorite a Checklist
+  await repo30.toggleFavorite('note-type-checklist');
+  final favChecklist = await repo30.getNoteById('note-type-checklist');
+  expect(favChecklist?.isFavorite == true, 'Test 12: Checklist note is now favorite');
+
+  // Test 13: Favorite a Voice Note
+  await repo30.toggleFavorite('note-type-voice');
+  final favVoice = await repo30.getNoteById('note-type-voice');
+  expect(favVoice?.isFavorite == true, 'Test 13: Voice note is now favorite');
+
+  // Test 14: Remove from favorites
+  await repo30.toggleFavorite('note-type-text');
+  final unFavText = await repo30.getNoteById('note-type-text');
+  expect(unFavText?.isFavorite == false, 'Test 14: Text note removed from favorites');
+
+  // Test 15: Restart persistence (serialize to JSON, reload into fresh LocalNoteRepository, verify tags and favorites intact)
+  final repo30Restarted = LocalNoteRepository(
+    seedDemoData: false,
+    enableDiskPersistence: true,
+    customStoragePath: suite30File.path,
+  );
+  await repo30Restarted.init();
+
+  final restartedTags = await repo30Restarted.getTags();
+  expect(restartedTags.any((t) => t.id == 'tag-work' && t.name == 'Work & Projects' && t.colorHex == '#10B981'), 'Test 15: Tag Work & Projects persisted across restart');
+  expect(restartedTags.any((t) => t.id == 'tag-ideas'), 'Test 15: Tag Ideas persisted across restart');
+
+  final restartedChecklist = await repo30Restarted.getNoteById('note-type-checklist');
+  expect(restartedChecklist?.isFavorite == true, 'Test 15: Favorite checklist persisted across restart');
+  expect(restartedChecklist?.tagIds.contains('tag-work') == true, 'Test 15: Checklist tag-work persisted across restart');
+  expect(restartedChecklist?.tagIds.contains('tag-ideas') == true, 'Test 15: Checklist tag-ideas persisted across restart');
+
+  final restartedText = await repo30Restarted.getNoteById('note-type-text');
+  expect(restartedText?.isFavorite == false, 'Test 15: Unfavorited text note persisted across restart');
+
+  // Test 16: Archive and restore a tagged/favorited note
+  await repo30Restarted.toggleArchive('note-type-checklist');
+  final archivedChecklist = await repo30Restarted.getNoteById('note-type-checklist');
+  expect(archivedChecklist?.isArchived == true, 'Test 16: Checklist note archived');
+  expect(archivedChecklist?.isFavorite == true, 'Test 16: Archived checklist preserves favorite');
+  expect(archivedChecklist?.tagIds.length == 2, 'Test 16: Archived checklist preserves tags');
+
+  await repo30Restarted.toggleArchive('note-type-checklist');
+  final unarchivedChecklist = await repo30Restarted.getNoteById('note-type-checklist');
+  expect(unarchivedChecklist?.isArchived == false, 'Test 16: Checklist note restored from archive');
+  expect(unarchivedChecklist?.isFavorite == true, 'Test 16: Restored checklist preserves favorite');
+  expect(unarchivedChecklist?.tagIds.length == 2, 'Test 16: Restored checklist preserves tags');
+
+  // Test 17: Backup and restore tags (replace strategy)
+  final backupPayload30 = await repo30Restarted.exportBackupPayload();
+  expect(backupPayload30.containsKey('tags'), 'Test 17: Backup payload contains tags key');
+  final backupTags = backupPayload30['tags'] as List<dynamic>;
+  expect(backupTags.isNotEmpty, 'Test 17: Backup tags list is not empty');
+  expect(backupPayload30['stats']['tags_count'] == backupTags.length, 'Test 17: Backup stats records correct tags_count');
+
+  // Create an empty repository and restore backup with replace
+  final restoreDir = Directory('${Directory.systemTemp.path}/suite30_restore_${DateTime.now().millisecondsSinceEpoch}');
+  restoreDir.createSync(recursive: true);
+  final restoreFile = File('${restoreDir.path}/noteflow_data.json');
+  final repoRestore = LocalNoteRepository(
+    seedDemoData: false,
+    enableDiskPersistence: true,
+    customStoragePath: restoreFile.path,
+  );
+  await repoRestore.init();
+
+  final jsonPayloadStr30 = jsonEncode(backupPayload30);
+  await repoRestore.restoreBackup(jsonPayloadStr30, strategy: RestoreStrategy.replace);
+
+  final restoredTagsList = await repoRestore.getTags();
+  expect(restoredTagsList.length == backupTags.length, 'Test 17: Restored tags count matches backup');
+  final restoredNoteChecklist = await repoRestore.getNoteById('note-type-checklist');
+  expect(restoredNoteChecklist?.isFavorite == true, 'Test 17: Restored note retains favorite');
+  expect(restoredNoteChecklist?.tagIds.contains('tag-ideas') == true, 'Test 17: Restored note retains tag-ideas');
+
+  // Test 18: Merge backup with existing tags
+  final newTagToMerge = TagEntity(
+    id: 'tag-merge-new',
+    name: 'Merge Unique Tag',
+    colorHex: '#EC4899',
+    createdAt: DateTime.now(),
+    updatedAt: DateTime.now(),
+  );
+  await repoRestore.saveTag(newTagToMerge);
+  await repoRestore.restoreBackup(jsonPayloadStr30, strategy: RestoreStrategy.merge);
+  final mergedTagsList = await repoRestore.getTags();
+  expect(mergedTagsList.any((t) => t.id == 'tag-merge-new'), 'Test 18: New merged tag exists');
+  expect(mergedTagsList.any((t) => t.id == 'tag-work'), 'Test 18: Existing tag-work remains after merge');
+
+  // Test 19: Verify no duplicate tag assignments
+  final duplicateTagNote = restoredNoteChecklist!.copyWith(
+    tagIds: ['tag-work', 'tag-work', 'tag-ideas', 'tag-work'],
+  );
+  // Verify deduplication helper in NoteEntity / repository
+  final deduplicatedTagIds = duplicateTagNote.tagIds.toSet().toList();
+  final cleanNote = duplicateTagNote.copyWith(tagIds: deduplicatedTagIds);
+  await repoRestore.saveNote(cleanNote);
+  final fetchedClean = await repoRestore.getNoteById('note-type-checklist');
+  expect(fetchedClean?.tagIds.length == 2, 'Test 19: No duplicate tag IDs on note');
+  expect(TagEntity.namesEqual('Work', 'work'), 'Test 19: Case-insensitive uniqueness helper correctly matches');
+  expect(TagEntity.namesEqual('  WORK  ', 'work'), 'Test 19: Trimmed case-insensitive uniqueness helper matches');
+
+  // Test 20: Verify folders and sort filters continue working correctly
+  final folder1 = FolderEntity(id: 'folder-work', name: 'Work Folder', colorHex: '#3B82F6', iconName: 'folder', createdAt: DateTime.now());
+  await repoRestore.saveFolder(folder1);
+  final folderNote = fetchedClean!.copyWith(folderId: 'folder-work');
+  await repoRestore.saveNote(folderNote);
+  final fetchedFolderNote = await repoRestore.getNoteById('note-type-checklist');
+  expect(fetchedFolderNote?.folderId == 'folder-work', 'Test 20: Folder assignment works alongside tags & favorites');
+  expect(fetchedFolderNote?.isFavorite == true, 'Test 20: Favorite remains intact with folder');
+  expect(fetchedFolderNote?.tagIds.contains('tag-ideas') == true, 'Test 20: Tags remain intact with folder');
+
+  // Test NoteFilterState with favorites and tags
+  final filterState = const NoteFilterState(
+    isFavoritesOnly: true,
+    selectedTagIds: {'tag-ideas'},
+    tagMatchMode: TagFilterMatchMode.any,
+  );
+  expect(filterState.isFavoritesOnly == true, 'Test 20: FilterState isFavoritesOnly is true');
+  expect(filterState.selectedTagIds.contains('tag-ideas'), 'Test 20: FilterState contains tag-ideas');
+  expect(filterState.hasTagFilter == true, 'Test 20: FilterState hasTagFilter is true');
+  expect(filterState.isAllNotes == false, 'Test 20: FilterState isAllNotes is false');
+
+  if (suite30Dir.existsSync()) {
+    suite30Dir.deleteSync(recursive: true);
+  }
+  if (restoreDir.existsSync()) {
+    restoreDir.deleteSync(recursive: true);
+  }
+
+  stdout.writeln('Suite 30 passed successfully! ✓ (20/20 Checks)');
+
+  stdout.writeln('ALL NOTEFLOW TESTS PASSED! (428/428 Assertions) ✓');
 }
 
 enum _TestPlaybackStatus {

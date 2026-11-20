@@ -169,6 +169,7 @@ class _ArchiveScreenState extends ConsumerState<ArchiveScreen> {
                         folder: note.folderId != null ? folderMap[note.folderId] : null,
                         onTap: () => _navigateToEditor(note),
                         onTogglePin: () {},
+                        onToggleFavorite: () => repo.toggleFavorite(note.id),
                         onToggleArchive: () async {
                           await repo.toggleArchive(note.id);
                           if (context.mounted) {

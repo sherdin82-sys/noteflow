@@ -3,6 +3,7 @@ import 'dart:io';
 import '../../../core/database/local_note_repository.dart';
 import '../../../shared/models/backup_models.dart';
 import '../../../shared/models/folder_entity.dart';
+import '../../../shared/models/tag_entity.dart';
 import '../../../shared/models/note_entity.dart';
 import '../../../shared/models/voice_recording_entity.dart';
 import '../../../shared/models/reminder_entity.dart';
@@ -87,6 +88,7 @@ class RestoreService {
 
     final notesList = (parsed['notes'] as List<dynamic>?) ?? [];
     final foldersList = (parsed['folders'] as List<dynamic>?) ?? [];
+    final tagsList = (parsed['tags'] as List<dynamic>?) ?? [];
     final recordingsList = (parsed['voice_recordings'] as List<dynamic>?) ?? [];
     final rawReminders = (parsed['reminders'] as List<dynamic>?) ?? [];
     final audioPayloads = (parsed['audio_payloads'] as Map<String, dynamic>?) ?? {};
@@ -94,6 +96,7 @@ class RestoreService {
     final stats = parsed['stats'] as Map<String, dynamic>?;
     final notesCount = stats?['notes_count'] as int? ?? notesList.length;
     final foldersCount = stats?['folders_count'] as int? ?? foldersList.length;
+    final tagsCount = stats?['tags_count'] as int? ?? tagsList.length;
     final recordingsCount = stats?['recordings_count'] as int? ?? recordingsList.length;
     final audioFilesCount = stats?['audio_files_count'] as int? ?? audioPayloads.length;
     final remindersCount = stats?['reminders_count'] as int? ?? rawReminders.length;
@@ -107,6 +110,7 @@ class RestoreService {
       createdAt: createdAt,
       notesCount: notesCount,
       foldersCount: foldersCount,
+      tagsCount: tagsCount,
       recordingsCount: recordingsCount,
       hasAudio: hasAudio,
       audioFilesCount: audioFilesCount,
@@ -178,6 +182,7 @@ class RestoreService {
     try {
       onProgress?.call(0.55, 'Parsing note entities...');
       final rawFolders = parsed['folders'] as List<dynamic>? ?? [];
+      final rawTags = parsed['tags'] as List<dynamic>? ?? [];
       final rawNotes = parsed['notes'] as List<dynamic>? ?? [];
       final rawRecordings = parsed['voice_recordings'] as List<dynamic>? ?? [];
       final rawReminders = parsed['reminders'] as List<dynamic>? ?? [];
@@ -186,6 +191,9 @@ class RestoreService {
 
       final backupFolders = rawFolders
           .map((f) => FolderEntity.fromMap(Map<String, dynamic>.from(f as Map)))
+          .toList();
+      final backupTags = rawTags
+          .map((t) => TagEntity.fromMap(Map<String, dynamic>.from(t as Map)))
           .toList();
       final backupNotes = rawNotes
           .map((n) => NoteEntity.fromMap(Map<String, dynamic>.from(n as Map)))
@@ -243,6 +251,7 @@ class RestoreService {
           folders: backupFolders,
           notes: backupNotes,
           voiceRecordings: backupRecordings,
+          tags: backupTags,
           reminders: backupReminders,
           themeMode: themeMode,
         );
@@ -251,6 +260,7 @@ class RestoreService {
           folders: backupFolders,
           notes: backupNotes,
           voiceRecordings: backupRecordings,
+          tags: backupTags,
           reminders: backupReminders,
           themeMode: themeMode,
         );

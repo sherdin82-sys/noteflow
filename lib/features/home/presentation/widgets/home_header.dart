@@ -9,6 +9,7 @@ class HomeHeader extends StatelessWidget {
   final ValueChanged<String> onSearchChanged;
   final VoidCallback onClearSearch;
   final VoidCallback onToggleTheme;
+  final VoidCallback onOpenTags;
   final VoidCallback onOpenFolders;
   final VoidCallback onOpenArchive;
   final VoidCallback onOpenBackup;
@@ -23,6 +24,7 @@ class HomeHeader extends StatelessWidget {
     required this.onSearchChanged,
     required this.onClearSearch,
     required this.onToggleTheme,
+    required this.onOpenTags,
     required this.onOpenFolders,
     required this.onOpenArchive,
     required this.onOpenBackup,
@@ -89,6 +91,20 @@ class HomeHeader extends StatelessWidget {
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  // Tags Screen
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.all(6),
+                    constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                    icon: Icon(
+                      Icons.label_outline_rounded,
+                      size: 20,
+                      color: secondaryTextColor,
+                    ),
+                    tooltip: 'Manage Tags',
+                    onPressed: onOpenTags,
+                  ),
+                  const SizedBox(width: 2),
                   // Folders Screen
                   IconButton(
                     visualDensity: VisualDensity.compact,

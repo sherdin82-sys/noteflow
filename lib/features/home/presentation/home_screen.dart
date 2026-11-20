@@ -13,11 +13,14 @@ import '../../../shared/widgets/empty_state_view.dart';
 import '../providers/home_notes_provider.dart';
 import 'widgets/home_header.dart';
 import 'widgets/folder_filter_bar.dart';
+import 'widgets/tag_filter_bar.dart';
 import 'widgets/note_card.dart';
 import '../../editor/presentation/note_editor_screen.dart';
 import '../../voice_notes/presentation/voice_note_editor_screen.dart';
 import '../../archive/presentation/archive_screen.dart';
 import '../../folders/presentation/folders_screen.dart';
+import '../../tags/presentation/tags_screen.dart';
+import '../../tags/presentation/widgets/tag_dialog.dart';
 import '../../backup/presentation/backup_restore_screen.dart';
 import '../../reminders/presentation/reminder_management_screen.dart';
 import '../../reminders/services/reminder_native_bridge.dart';
@@ -163,6 +166,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final homeNotesAsync = ref.watch(homeNotesProvider);
     final foldersAsync = ref.watch(foldersStreamProvider);
+    final tagsAsync = ref.watch(tagsStreamProvider);
     final filterState = ref.watch(noteFilterProvider);
     final filterNotifier = ref.read(noteFilterProvider.notifier);
     final repo = ref.read(noteRepositoryProvider);
@@ -171,7 +175,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // Top Header: Branding, Search, Folders, Archive, Theme & Sort Actions
+            // Top Header: Branding, Search, Tags, Folders, Archive, Theme & Sort Actions
             HomeHeader(
               searchController: _searchController,
               isDark: isDark,
@@ -182,6 +186,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 filterNotifier.setSearchQuery('');
               },
               onToggleTheme: () => ref.read(themeModeProvider.notifier).toggleTheme(),
+              onOpenTags: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const TagsScreen()),
+              ),
               onOpenFolders: () => Navigator.push(
                 context,
                 MaterialPageRoute(builder: (_) => const FoldersScreen()),
@@ -198,16 +206,39 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               onSortChanged: (sort) => filterNotifier.setSortOrder(sort),
             ),
 
-            // Category & Folder Filter Chips
+            // Category & Folder Filter Chips (with Favorites)
             foldersAsync.when(
               data: (folders) => FolderFilterBar(
                 folders: folders,
                 selectedFolderId: filterState.selectedFolderId,
+                isFavoritesSelected: filterState.isFavoritesOnly,
                 onSelectFolder: (id) => filterNotifier.setSelectedFolder(id),
+                onSelectFavorites: () => filterNotifier.toggleFavoritesOnly(),
                 onAddFolder: _showCreateFolderDialog,
               ),
               loading: () => const SizedBox(height: 40),
               error: (_, __) => const SizedBox(height: 40),
+            ),
+
+            // Secondary Tag Filter Bar
+            tagsAsync.when(
+              data: (tags) => TagFilterBar(
+                tags: tags,
+                selectedTagIds: filterState.selectedTagIds,
+                matchMode: filterState.tagMatchMode,
+                onToggleTag: (id) => filterNotifier.toggleTag(id),
+                onClearTags: () => filterNotifier.clearTags(),
+                onToggleMatchMode: (m) => filterNotifier.setTagMatchMode(m),
+                onAddTag: () async {
+                  final result = await TagDialog.show(context: context, allTags: tags);
+                  if (result != null && mounted) {
+                    await repo.saveTag(result);
+                    filterNotifier.toggleTag(result.id);
+                  }
+                },
+              ),
+              loading: () => const SizedBox.shrink(),
+              error: (_, __) => const SizedBox.shrink(),
             ),
 
             const SizedBox(height: 12),
@@ -246,6 +277,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                 folder: note.folderId != null ? folderMap[note.folderId] : null,
                                 onTap: () => _navigateToEditor(note: note),
                                 onTogglePin: () => repo.togglePin(note.id),
+                                onToggleFavorite: () => repo.toggleFavorite(note.id),
                                 onToggleArchive: () => repo.toggleArchive(note.id),
                                 onDelete: () => _confirmDelete(note),
                               ),
@@ -267,6 +299,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                 folder: note.folderId != null ? folderMap[note.folderId] : null,
                                 onTap: () => _navigateToEditor(note: note),
                                 onTogglePin: () => repo.togglePin(note.id),
+                                onToggleFavorite: () => repo.toggleFavorite(note.id),
                                 onToggleArchive: () => repo.toggleArchive(note.id),
                                 onDelete: () => _confirmDelete(note),
                               ),
@@ -327,6 +360,26 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           _searchController.clear();
           ref.read(noteFilterProvider.notifier).setSearchQuery('');
         },
+      );
+    }
+
+    if (filter.isFavoritesOnly) {
+      return EmptyStateView(
+        icon: Icons.star_outline_rounded,
+        title: 'No favorite notes yet',
+        description: 'Star your most important notes or checklists to view them quickly in favorites.',
+        actionLabel: 'View All Notes',
+        onAction: () => ref.read(noteFilterProvider.notifier).selectAllNotes(),
+      );
+    }
+
+    if (filter.hasTagFilter) {
+      return EmptyStateView(
+        icon: Icons.label_off_outlined,
+        title: 'No notes with selected tags',
+        description: 'No notes matched the active tag filters. Try selecting different tags or create a note with these tags.',
+        actionLabel: 'Clear Tag Filters',
+        onAction: () => ref.read(noteFilterProvider.notifier).clearTags(),
       );
     }
 

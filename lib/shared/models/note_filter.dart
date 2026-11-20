@@ -5,6 +5,11 @@ enum NoteSortOrder {
   titleZA,
 }
 
+enum TagFilterMatchMode {
+  any,
+  all,
+}
+
 sealed class FolderFilter {
   const FolderFilter();
 
@@ -52,25 +57,36 @@ class SpecificFolderFilter extends FolderFilter {
 class NoteFilterState {
   final String searchQuery;
   final FolderFilter folderFilter;
+  final bool isFavoritesOnly;
+  final Set<String> selectedTagIds;
+  final TagFilterMatchMode tagMatchMode;
   final bool showArchived;
   final NoteSortOrder sortOrder;
 
   const NoteFilterState({
     this.searchQuery = '',
     this.folderFilter = const FolderFilter.all(),
+    this.isFavoritesOnly = false,
+    this.selectedTagIds = const {},
+    this.tagMatchMode = TagFilterMatchMode.any,
     this.showArchived = false,
     this.sortOrder = NoteSortOrder.recentlyModified,
   });
 
   /// Backward-compatible convenience getters
   String? get selectedFolderId => folderFilter.folderId;
-  bool get isAllNotes => folderFilter.isAll;
+  bool get isAllNotes => folderFilter.isAll && !isFavoritesOnly && selectedTagIds.isEmpty;
+  bool get hasTagFilter => selectedTagIds.isNotEmpty;
 
   NoteFilterState copyWith({
     String? searchQuery,
     FolderFilter? folderFilter,
     String? selectedFolderId,
     bool clearFolder = false,
+    bool? isFavoritesOnly,
+    Set<String>? selectedTagIds,
+    bool clearTags = false,
+    TagFilterMatchMode? tagMatchMode,
     bool? showArchived,
     NoteSortOrder? sortOrder,
   }) {
@@ -85,9 +101,21 @@ class NoteFilterState {
       newFolderFilter = this.folderFilter;
     }
 
+    final Set<String> newSelectedTagIds;
+    if (clearTags) {
+      newSelectedTagIds = const {};
+    } else if (selectedTagIds != null) {
+      newSelectedTagIds = Set.unmodifiable(selectedTagIds);
+    } else {
+      newSelectedTagIds = this.selectedTagIds;
+    }
+
     return NoteFilterState(
       searchQuery: searchQuery ?? this.searchQuery,
       folderFilter: newFolderFilter,
+      isFavoritesOnly: isFavoritesOnly ?? this.isFavoritesOnly,
+      selectedTagIds: newSelectedTagIds,
+      tagMatchMode: tagMatchMode ?? this.tagMatchMode,
       showArchived: showArchived ?? this.showArchived,
       sortOrder: sortOrder ?? this.sortOrder,
     );

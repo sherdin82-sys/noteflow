@@ -13,6 +13,7 @@ import '../../features/reminders/services/reminder_scheduler.dart';
 class LocalNoteRepository implements NoteRepository {
   final List<NoteEntity> _notes = [];
   final List<FolderEntity> _folders = [];
+  final List<TagEntity> _tags = [];
   final List<VoiceRecordingEntity> _voiceRecordings = [];
   final List<ReminderEntity> _reminders = [];
 
@@ -20,6 +21,7 @@ class LocalNoteRepository implements NoteRepository {
 
   final _notesStreamController = StreamController<List<NoteEntity>>.broadcast();
   final _foldersStreamController = StreamController<List<FolderEntity>>.broadcast();
+  final _tagsStreamController = StreamController<List<TagEntity>>.broadcast();
   final _recordingsStreamController = StreamController<List<VoiceRecordingEntity>>.broadcast();
   final _remindersStreamController = StreamController<List<ReminderEntity>>.broadcast();
 
@@ -71,12 +73,18 @@ class LocalNoteRepository implements NoteRepository {
             _themeMode = data['theme_mode'] as String? ?? 'dark';
           }
           final rawFolders = data['folders'] as List<dynamic>? ?? [];
+          final rawTags = data['tags'] as List<dynamic>? ?? [];
           final rawNotes = data['notes'] as List<dynamic>? ?? [];
           final rawRecordings = data['voice_recordings'] as List<dynamic>? ?? [];
 
           _folders.clear();
           for (final f in rawFolders) {
             _folders.add(FolderEntity.fromMap(Map<String, dynamic>.from(f as Map)));
+          }
+
+          _tags.clear();
+          for (final t in rawTags) {
+            _tags.add(TagEntity.fromMap(Map<String, dynamic>.from(t as Map)));
           }
 
           _notes.clear();
@@ -103,6 +111,7 @@ class LocalNoteRepository implements NoteRepository {
           _initialized = true;
           _emitNotes();
           _emitFolders();
+          _emitTags();
           _emitRecordings();
           _emitReminders();
           return;
@@ -213,6 +222,7 @@ class LocalNoteRepository implements NoteRepository {
         'theme_mode': _themeMode,
         'next_notification_id': _nextNotificationId,
         'folders': _folders.map((f) => f.toMap()).toList(),
+        'tags': _tags.map((t) => t.toMap()).toList(),
         'notes': _notes.map((n) => n.toMap()).toList(),
         'voice_recordings': _voiceRecordings.map((r) => r.toMap()).toList(),
         'reminders': _reminders.map((r) => r.toMap()).toList(),
@@ -251,6 +261,38 @@ class LocalNoteRepository implements NoteRepository {
       ),
     ]);
 
+    // Seed Tags
+    _tags.addAll([
+      TagEntity(
+        id: 'tag-important',
+        name: 'Important',
+        colorHex: '0xFFEF4444', // Red/Rose
+        createdAt: now.subtract(const Duration(days: 6)),
+        updatedAt: now.subtract(const Duration(days: 6)),
+      ),
+      TagEntity(
+        id: 'tag-work',
+        name: 'Work',
+        colorHex: '0xFF2563EB', // Cobalt
+        createdAt: now.subtract(const Duration(days: 5)),
+        updatedAt: now.subtract(const Duration(days: 5)),
+      ),
+      TagEntity(
+        id: 'tag-ideas',
+        name: 'Ideas',
+        colorHex: '0xFF10B981', // Emerald
+        createdAt: now.subtract(const Duration(days: 4)),
+        updatedAt: now.subtract(const Duration(days: 4)),
+      ),
+      TagEntity(
+        id: 'tag-personal',
+        name: 'Personal',
+        colorHex: '0xFF8B5CF6', // Purple
+        createdAt: now.subtract(const Duration(days: 3)),
+        updatedAt: now.subtract(const Duration(days: 3)),
+      ),
+    ]);
+
     // Seed Notes
     _notes.addAll([
       NoteEntity(
@@ -268,9 +310,11 @@ class LocalNoteRepository implements NoteRepository {
         folderId: 'folder-ideas',
         isPinned: true,
         isArchived: false,
+        isFavorite: true,
         isChecklist: false,
         isVoiceNote: false,
         colorIndex: 1, // Soft emerald tint
+        tagIds: const ['tag-ideas', 'tag-important'],
         createdAt: now.subtract(const Duration(hours: 3)),
         updatedAt: now.subtract(const Duration(minutes: 10)),
       ),
@@ -287,9 +331,11 @@ class LocalNoteRepository implements NoteRepository {
         folderId: 'folder-personal',
         isPinned: true,
         isArchived: false,
+        isFavorite: false,
         isChecklist: true,
         isVoiceNote: false,
         colorIndex: 4, // Warm amber tint
+        tagIds: const ['tag-personal'],
         createdAt: now.subtract(const Duration(days: 1)),
         updatedAt: now.subtract(const Duration(hours: 1)),
       ),
@@ -304,9 +350,11 @@ class LocalNoteRepository implements NoteRepository {
         folderId: 'folder-work',
         isPinned: false,
         isArchived: false,
+        isFavorite: true,
         isChecklist: false,
         isVoiceNote: false,
         colorIndex: 2, // Soft blue tint
+        tagIds: const ['tag-work'],
         createdAt: now.subtract(const Duration(days: 2)),
         updatedAt: now.subtract(const Duration(hours: 4)),
       ),
@@ -317,10 +365,12 @@ class LocalNoteRepository implements NoteRepository {
         folderId: 'folder-work',
         isPinned: false,
         isArchived: false,
+        isFavorite: false,
         isChecklist: false,
         isVoiceNote: true,
         voiceMode: 'list',
         colorIndex: 3, // Lavender tint
+        tagIds: const ['tag-work', 'tag-ideas'],
         createdAt: now.subtract(const Duration(hours: 5)),
         updatedAt: now.subtract(const Duration(minutes: 45)),
       ),
@@ -352,7 +402,16 @@ class LocalNoteRepository implements NoteRepository {
 
     _emitNotes();
     _emitFolders();
+    _emitTags();
     _emitRecordings();
+  }
+
+  void _emitTags() {
+    if (!_tagsStreamController.isClosed) {
+      final sorted = List<TagEntity>.from(_tags)
+        ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+      _tagsStreamController.add(List.unmodifiable(sorted));
+    }
   }
 
   void _emitNotes() {
@@ -585,6 +644,20 @@ class LocalNoteRepository implements NoteRepository {
   }
 
   @override
+  Future<void> toggleFavorite(String id) async {
+    final index = _notes.indexWhere((n) => n.id == id);
+    if (index >= 0) {
+      final current = _notes[index];
+      _notes[index] = current.copyWith(
+        isFavorite: !current.isFavorite,
+        updatedAt: DateTime.now(),
+      );
+      _emitNotes();
+      await _saveToDisk();
+    }
+  }
+
+  @override
   Stream<List<FolderEntity>> watchFolders() async* {
     yield List.unmodifiable(_folders);
     yield* _foldersStreamController.stream;
@@ -613,6 +686,62 @@ class LocalNoteRepository implements NoteRepository {
     }
     _emitFolders();
     _emitNotes();
+    await _saveToDisk();
+  }
+
+  // Tags CRUD
+  @override
+  Stream<List<TagEntity>> watchTags() async* {
+    final sorted = List<TagEntity>.from(_tags)
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    yield List.unmodifiable(sorted);
+    yield* _tagsStreamController.stream;
+  }
+
+  @override
+  Future<List<TagEntity>> getTags() async {
+    final sorted = List<TagEntity>.from(_tags)
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    return List.unmodifiable(sorted);
+  }
+
+  @override
+  Future<TagEntity?> getTagById(String id) async {
+    try {
+      return _tags.firstWhere((t) => t.id == id);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Future<void> saveTag(TagEntity tag) async {
+    final index = _tags.indexWhere((t) => t.id == tag.id);
+    if (index >= 0) {
+      _tags[index] = tag.copyWith(updatedAt: DateTime.now());
+    } else {
+      _tags.add(tag);
+    }
+    _emitTags();
+    await _saveToDisk();
+  }
+
+  @override
+  Future<void> deleteTag(String id) async {
+    _tags.removeWhere((t) => t.id == id);
+    // Cascade removal of this tag from all notes
+    bool notesModified = false;
+    for (int i = 0; i < _notes.length; i++) {
+      if (_notes[i].tagIds.contains(id)) {
+        final updatedTags = List<String>.from(_notes[i].tagIds)..remove(id);
+        _notes[i] = _notes[i].copyWith(tagIds: updatedTags);
+        notesModified = true;
+      }
+    }
+    _emitTags();
+    if (notesModified) {
+      _emitNotes();
+    }
     await _saveToDisk();
   }
 
@@ -730,6 +859,7 @@ class LocalNoteRepository implements NoteRepository {
 
   List<NoteEntity> getAllNotes() => List.unmodifiable(_notes);
   List<FolderEntity> getAllFolders() => List.unmodifiable(_folders);
+  List<TagEntity> getAllTags() => List.unmodifiable(_tags);
   List<VoiceRecordingEntity> getAllVoiceRecordings() =>
       List.unmodifiable(_voiceRecordings);
   List<ReminderEntity> getAllReminders() => List.unmodifiable(_reminders);
@@ -738,12 +868,17 @@ class LocalNoteRepository implements NoteRepository {
     required List<FolderEntity> folders,
     required List<NoteEntity> notes,
     required List<VoiceRecordingEntity> voiceRecordings,
+    List<TagEntity>? tags,
     List<ReminderEntity>? reminders,
     String? themeMode,
   }) async {
     if (themeMode != null) _themeMode = themeMode;
     _folders.clear();
     _folders.addAll(folders);
+    if (tags != null) {
+      _tags.clear();
+      _tags.addAll(tags);
+    }
     _notes.clear();
     _notes.addAll(notes);
     _voiceRecordings.clear();
@@ -781,6 +916,7 @@ class LocalNoteRepository implements NoteRepository {
 
       _emitReminders();
     }
+    if (tags != null) _emitTags();
     _emitFolders();
     _emitNotes();
     _emitRecordings();
@@ -791,6 +927,7 @@ class LocalNoteRepository implements NoteRepository {
     required List<FolderEntity> folders,
     required List<NoteEntity> notes,
     required List<VoiceRecordingEntity> voiceRecordings,
+    List<TagEntity>? tags,
     List<ReminderEntity>? reminders,
     String? themeMode,
   }) async {
@@ -802,6 +939,18 @@ class LocalNoteRepository implements NoteRepository {
         _folders[idx] = bf;
       } else {
         _folders.add(bf);
+      }
+    }
+
+    if (tags != null) {
+      for (final bt in tags) {
+        final idx = _tags.indexWhere((t) =>
+            t.id == bt.id || TagEntity.namesEqual(t.name, bt.name));
+        if (idx >= 0) {
+          _tags[idx] = bt;
+        } else {
+          _tags.add(bt);
+        }
       }
     }
 
@@ -817,7 +966,12 @@ class LocalNoteRepository implements NoteRepository {
     for (final bn in notes) {
       final idx = _notes.indexWhere((n) => n.id == bn.id);
       if (idx >= 0) {
-        _notes[idx] = bn;
+        final mergedTagIds = {..._notes[idx].tagIds, ...bn.tagIds}.toList();
+        final isFav = _notes[idx].isFavorite || bn.isFavorite;
+        _notes[idx] = bn.copyWith(
+          tagIds: mergedTagIds,
+          isFavorite: isFav,
+        );
       } else {
         _notes.add(bn);
       }
@@ -1020,18 +1174,20 @@ class LocalNoteRepository implements NoteRepository {
     return {
       'app': 'NoteFlow',
       'version': 1,
-      'backup_version': 1,
+      'backup_version': 2,
       'created_at': now.toIso8601String(),
       'theme_mode': _themeMode,
       'stats': {
         'notes_count': _notes.length,
         'folders_count': _folders.length,
+        'tags_count': _tags.length,
         'recordings_count': _voiceRecordings.length,
         'reminders_count': _reminders.length,
         'has_audio': audioFilesCount > 0,
         'audio_files_count': audioFilesCount,
       },
       'folders': _folders.map((f) => f.toMap()).toList(),
+      'tags': _tags.map((t) => t.toMap()).toList(),
       'notes': _notes.map((n) => n.toMap()).toList(),
       'voice_recordings': _voiceRecordings.map((r) => r.toMap()).toList(),
       'reminders': _reminders.map((r) => r.toMap()).toList(),
@@ -1073,6 +1229,7 @@ class LocalNoteRepository implements NoteRepository {
   void dispose() {
     _notesStreamController.close();
     _foldersStreamController.close();
+    _tagsStreamController.close();
     _recordingsStreamController.close();
     _remindersStreamController.close();
   }

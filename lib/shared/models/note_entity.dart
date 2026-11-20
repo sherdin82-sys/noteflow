@@ -5,12 +5,14 @@ class NoteEntity {
   final String? folderId;
   final bool isPinned;
   final bool isArchived;
+  final bool isFavorite;
   final bool isChecklist;
   final bool isVoiceNote;
   final String voiceMode; // 'list' or 'checklist'
   final int colorIndex;
   final String? audioPath;
   final int? audioDurationMs;
+  final List<String> tagIds;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -21,12 +23,14 @@ class NoteEntity {
     this.folderId,
     this.isPinned = false,
     this.isArchived = false,
+    this.isFavorite = false,
     this.isChecklist = false,
     this.isVoiceNote = false,
     this.voiceMode = 'list',
     this.colorIndex = 0,
     this.audioPath,
     this.audioDurationMs,
+    this.tagIds = const [],
     required this.createdAt,
     required this.updatedAt,
   });
@@ -41,6 +45,7 @@ class NoteEntity {
     bool clearFolder = false,
     bool? isPinned,
     bool? isArchived,
+    bool? isFavorite,
     bool? isChecklist,
     bool? isVoiceNote,
     String? voiceMode,
@@ -48,6 +53,7 @@ class NoteEntity {
     String? audioPath,
     bool clearAudio = false,
     int? audioDurationMs,
+    List<String>? tagIds,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -58,12 +64,14 @@ class NoteEntity {
       folderId: clearFolder ? null : (folderId ?? this.folderId),
       isPinned: isPinned ?? this.isPinned,
       isArchived: isArchived ?? this.isArchived,
+      isFavorite: isFavorite ?? this.isFavorite,
       isChecklist: isChecklist ?? this.isChecklist,
       isVoiceNote: isVoiceNote ?? this.isVoiceNote,
       voiceMode: voiceMode ?? this.voiceMode,
       colorIndex: colorIndex ?? this.colorIndex,
       audioPath: clearAudio ? null : (audioPath ?? this.audioPath),
       audioDurationMs: clearAudio ? null : (audioDurationMs ?? this.audioDurationMs),
+      tagIds: tagIds != null ? List.unmodifiable(tagIds) : this.tagIds,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -77,18 +85,21 @@ class NoteEntity {
       'folder_id': folderId,
       'is_pinned': isPinned ? 1 : 0,
       'is_archived': isArchived ? 1 : 0,
+      'is_favorite': isFavorite ? 1 : 0,
       'is_checklist': isChecklist ? 1 : 0,
       'is_voice_note': isVoiceNote ? 1 : 0,
       'voice_mode': voiceMode,
       'color_index': colorIndex,
       'audio_path': audioPath,
       'audio_duration_ms': audioDurationMs,
+      'tag_ids': tagIds,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
     };
   }
 
   factory NoteEntity.fromMap(Map<String, dynamic> map) {
+    final rawTags = map['tag_ids'] as List<dynamic>? ?? [];
     return NoteEntity(
       id: map['id'] as String,
       title: map['title'] as String? ?? '',
@@ -96,12 +107,14 @@ class NoteEntity {
       folderId: map['folder_id'] as String?,
       isPinned: (map['is_pinned'] as int? ?? 0) == 1,
       isArchived: (map['is_archived'] as int? ?? 0) == 1,
+      isFavorite: (map['is_favorite'] as int? ?? 0) == 1,
       isChecklist: (map['is_checklist'] as int? ?? 0) == 1,
       isVoiceNote: (map['is_voice_note'] as int? ?? 0) == 1,
       voiceMode: map['voice_mode'] as String? ?? 'list',
       colorIndex: map['color_index'] as int? ?? 0,
       audioPath: map['audio_path'] as String?,
       audioDurationMs: map['audio_duration_ms'] as int?,
+      tagIds: rawTags.map((e) => e.toString()).toList(),
       createdAt: DateTime.tryParse(map['created_at'] as String? ?? '') ?? DateTime.now(),
       updatedAt: DateTime.tryParse(map['updated_at'] as String? ?? '') ?? DateTime.now(),
     );

@@ -1,6 +1,6 @@
 // Database table schema definitions for Drift and SQLite
 //
-// NoteFlow uses Drift for type-safe database access and reactive SQL streams.
+// NoteFlow uses Drift / SQLite specifications for type-safe schema definitions.
 // Table schemas are declared here according to Drift specifications.
 
 class NotesTableDefinition {
@@ -12,12 +12,14 @@ class NotesTableDefinition {
   static const String colFolderId = 'folder_id';
   static const String colIsPinned = 'is_pinned';
   static const String colIsArchived = 'is_archived';
+  static const String colIsFavorite = 'is_favorite';
   static const String colIsChecklist = 'is_checklist';
   static const String colIsVoiceNote = 'is_voice_note';
   static const String colVoiceMode = 'voice_mode';
   static const String colColorIndex = 'color_index';
   static const String colAudioPath = 'audio_path';
   static const String colAudioDurationMs = 'audio_duration_ms';
+  static const String colTagIds = 'tag_ids';
   static const String colCreatedAt = 'created_at';
   static const String colUpdatedAt = 'updated_at';
 
@@ -29,12 +31,14 @@ class NotesTableDefinition {
       $colFolderId TEXT,
       $colIsPinned INTEGER NOT NULL DEFAULT 0,
       $colIsArchived INTEGER NOT NULL DEFAULT 0,
+      $colIsFavorite INTEGER NOT NULL DEFAULT 0,
       $colIsChecklist INTEGER NOT NULL DEFAULT 0,
       $colIsVoiceNote INTEGER NOT NULL DEFAULT 0,
       $colVoiceMode TEXT NOT NULL DEFAULT 'list',
       $colColorIndex INTEGER NOT NULL DEFAULT 0,
       $colAudioPath TEXT,
       $colAudioDurationMs INTEGER,
+      $colTagIds TEXT NOT NULL DEFAULT '[]',
       $colCreatedAt TEXT NOT NULL,
       $colUpdatedAt TEXT NOT NULL
     );
@@ -58,6 +62,49 @@ class FoldersTableDefinition {
       $colIconName TEXT NOT NULL DEFAULT 'folder',
       $colCreatedAt TEXT NOT NULL
     );
+  ''';
+}
+
+class TagsTableDefinition {
+  static const String tableName = 'tags';
+
+  static const String colId = 'id';
+  static const String colName = 'name';
+  static const String colColorHex = 'color_hex';
+  static const String colDescription = 'description';
+  static const String colCreatedAt = 'created_at';
+  static const String colUpdatedAt = 'updated_at';
+
+  static const String createTableSql = '''
+    CREATE TABLE IF NOT EXISTS $tableName (
+      $colId TEXT PRIMARY KEY NOT NULL,
+      $colName TEXT NOT NULL,
+      $colColorHex TEXT NOT NULL DEFAULT '0xFF2563EB',
+      $colDescription TEXT,
+      $colCreatedAt TEXT NOT NULL,
+      $colUpdatedAt TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_name_lower ON $tableName(LOWER($colName));
+  ''';
+}
+
+class NoteTagsTableDefinition {
+  static const String tableName = 'note_tags';
+
+  static const String colNoteId = 'note_id';
+  static const String colTagId = 'tag_id';
+  static const String colCreatedAt = 'created_at';
+
+  static const String createTableSql = '''
+    CREATE TABLE IF NOT EXISTS $tableName (
+      $colNoteId TEXT NOT NULL,
+      $colTagId TEXT NOT NULL,
+      $colCreatedAt TEXT NOT NULL,
+      PRIMARY KEY ($colNoteId, $colTagId),
+      FOREIGN KEY ($colNoteId) REFERENCES ${NotesTableDefinition.tableName}(${NotesTableDefinition.colId}) ON DELETE CASCADE,
+      FOREIGN KEY ($colTagId) REFERENCES ${TagsTableDefinition.tableName}(${TagsTableDefinition.colId}) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_note_tags_tag_id ON $tableName($colTagId);
   ''';
 }
 

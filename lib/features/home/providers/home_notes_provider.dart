@@ -13,7 +13,50 @@ class NoteFilterNotifier extends StateNotifier<NoteFilterState> {
 
   /// Explicitly select All Notes filter
   void selectAllNotes() {
-    state = state.copyWith(folderFilter: const FolderFilter.all());
+    state = state.copyWith(
+      folderFilter: const FolderFilter.all(),
+      isFavoritesOnly: false,
+      clearTags: true,
+    );
+  }
+
+  /// Toggle Favorites filter
+  void toggleFavoritesOnly() {
+    final next = !state.isFavoritesOnly;
+    state = state.copyWith(
+      isFavoritesOnly: next,
+      // When entering Favorites, reset to All Notes folder filter
+      clearFolder: next,
+    );
+  }
+
+  /// Explicitly set Favorites filter
+  void setFavoritesOnly(bool value) {
+    state = state.copyWith(
+      isFavoritesOnly: value,
+      clearFolder: value,
+    );
+  }
+
+  /// Toggle a tag in the filter set
+  void toggleTag(String tagId) {
+    final current = Set<String>.from(state.selectedTagIds);
+    if (current.contains(tagId)) {
+      current.remove(tagId);
+    } else {
+      current.add(tagId);
+    }
+    state = state.copyWith(selectedTagIds: current);
+  }
+
+  /// Clear all selected tags
+  void clearTags() {
+    state = state.copyWith(clearTags: true);
+  }
+
+  /// Set tag match mode (any vs all)
+  void setTagMatchMode(TagFilterMatchMode mode) {
+    state = state.copyWith(tagMatchMode: mode);
   }
 
   /// Explicitly select a specific folder, or toggle off to All Notes if already active
@@ -21,14 +64,17 @@ class NoteFilterNotifier extends StateNotifier<NoteFilterState> {
     if (state.folderFilter.folderId == folderId) {
       state = state.copyWith(folderFilter: const FolderFilter.all());
     } else {
-      state = state.copyWith(folderFilter: FolderFilter.folder(folderId));
+      state = state.copyWith(
+        folderFilter: FolderFilter.folder(folderId),
+        isFavoritesOnly: false,
+      );
     }
   }
 
   /// Sets selected folder: null unconditionally selects All Notes
   void setSelectedFolder(String? folderId) {
     if (folderId == null) {
-      selectAllNotes();
+      state = state.copyWith(folderFilter: const FolderFilter.all());
     } else {
       selectFolder(folderId);
     }
@@ -65,6 +111,7 @@ final homeNotesProvider = Provider<AsyncValue<HomeNotesData>>((ref) {
   final notesAsync = ref.watch(activeNotesStreamProvider);
   final filter = ref.watch(noteFilterProvider);
   final foldersAsync = ref.watch(foldersStreamProvider);
+  final tagsAsync = ref.watch(tagsStreamProvider);
 
   return notesAsync.whenData((notes) {
     // Validate folderFilter against active folders
@@ -75,6 +122,9 @@ final homeNotesProvider = Provider<AsyncValue<HomeNotesData>>((ref) {
         validFolders.any((f) => f.id == id) ? id : null,
     };
 
+    final validTags = tagsAsync.value ?? [];
+    final tagMap = {for (var t in validTags) t.id: t};
+
     // 1. Filter by folder
     var filtered = notes.where((note) {
       if (activeFolderId != null && note.folderId != activeFolderId) {
@@ -83,18 +133,38 @@ final homeNotesProvider = Provider<AsyncValue<HomeNotesData>>((ref) {
       return true;
     }).toList();
 
-    // 2. Filter by search query
+    // 2. Filter by Favorites
+    if (filter.isFavoritesOnly) {
+      filtered = filtered.where((note) => note.isFavorite).toList();
+    }
+
+    // 3. Filter by Tags
+    if (filter.selectedTagIds.isNotEmpty) {
+      filtered = filtered.where((note) {
+        if (filter.tagMatchMode == TagFilterMatchMode.any) {
+          return filter.selectedTagIds.any((id) => note.tagIds.contains(id));
+        } else {
+          return filter.selectedTagIds.every((id) => note.tagIds.contains(id));
+        }
+      }).toList();
+    }
+
+    // 4. Filter by search query (Title, Content, AND Tag Names)
     if (filter.searchQuery.trim().isNotEmpty) {
       final query = filter.searchQuery.toLowerCase().trim();
       filtered = filtered.where((note) {
         final titleMatch = note.title.toLowerCase().contains(query);
         final plainContent = NoteHelper.extractPlainText(note.content).toLowerCase();
         final contentMatch = plainContent.contains(query);
-        return titleMatch || contentMatch;
+        final tagMatch = note.tagIds.any((tid) {
+          final tag = tagMap[tid];
+          return tag != null && tag.name.toLowerCase().contains(query);
+        });
+        return titleMatch || contentMatch || tagMatch;
       }).toList();
     }
 
-    // 3. Sort
+    // 5. Sort
     filtered.sort((a, b) {
       switch (filter.sortOrder) {
         case NoteSortOrder.recentlyModified:
@@ -108,7 +178,7 @@ final homeNotesProvider = Provider<AsyncValue<HomeNotesData>>((ref) {
       }
     });
 
-    // 4. Split into pinned and unpinned
+    // 6. Split into pinned and unpinned
     final pinned = filtered.where((n) => n.isPinned).toList();
     final other = filtered.where((n) => !n.isPinned).toList();
 

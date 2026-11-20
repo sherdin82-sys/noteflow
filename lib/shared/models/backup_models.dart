@@ -39,7 +39,7 @@ class BackupManifest {
   const BackupManifest({
     this.formatVersion = 1,
     this.appIdentifier = 'com.noteflow.app',
-    this.appVersion = '1.4.0',
+    this.appVersion = '1.5.0',
     required this.createdAt,
     required this.stats,
     this.preferences = const {},
@@ -80,6 +80,7 @@ class BackupPreview {
   final DateTime createdAt;
   final int notesCount;
   final int foldersCount;
+  final int tagsCount;
   final int recordingsCount;
   final bool hasAudio;
   final int audioFilesCount;
@@ -95,6 +96,7 @@ class BackupPreview {
     required this.createdAt,
     required this.notesCount,
     required this.foldersCount,
+    this.tagsCount = 0,
     required this.recordingsCount,
     required this.hasAudio,
     required this.audioFilesCount,
@@ -121,6 +123,7 @@ class BackupPreview {
       'created_at': createdAt.toIso8601String(),
       'notes_count': notesCount,
       'folders_count': foldersCount,
+      'tags_count': tagsCount,
       'recordings_count': recordingsCount,
       'has_audio': hasAudio,
       'audio_files_count': audioFilesCount,

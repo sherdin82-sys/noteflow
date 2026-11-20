@@ -12,6 +12,9 @@ import '../../../../core/utils/note_helper.dart';
 import '../../../../core/database/database_provider.dart';
 import '../../../../shared/models/note_entity.dart';
 import '../../../../shared/models/folder_entity.dart';
+import '../../../../shared/models/tag_entity.dart';
+import '../../tags/presentation/widgets/tag_chip.dart';
+import '../../tags/presentation/widgets/tag_selector_modal.dart';
 import 'widgets/color_tint_picker.dart';
 import 'widgets/editor_toolbar.dart';
 import 'widgets/checklist_view.dart';
@@ -310,6 +313,19 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
     );
   }
 
+  Future<void> _showTagSelector() async {
+    final updatedTagIds = await TagSelectorModal.show(
+      context: context,
+      selectedTagIds: _currentNote.tagIds,
+    );
+    if (updatedTagIds != null && mounted) {
+      setState(() {
+        _currentNote = _currentNote.copyWith(tagIds: updatedTagIds);
+      });
+      _triggerAutoSave();
+    }
+  }
+
   void _showStats() {
     _currentNote = _currentNote.copyWith(
       title: _titleController.text,
@@ -437,6 +453,10 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
     final folders = foldersAsync.value ?? [];
     final currentFolder = folders.where((f) => f.id == _currentNote.folderId).firstOrNull;
 
+    final tagsAsync = ref.watch(tagsStreamProvider);
+    final allTags = tagsAsync.value ?? [];
+    final noteTags = allTags.where((t) => _currentNote.tagIds.contains(t.id)).toList();
+
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
@@ -481,6 +501,29 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
             ],
           ),
           actions: [
+            IconButton(
+              icon: Icon(
+                _currentNote.isFavorite ? Icons.star_rounded : Icons.star_outline_rounded,
+                color: _currentNote.isFavorite ? Colors.amber : secondaryTextColor,
+              ),
+              tooltip: _currentNote.isFavorite ? 'Unfavorite Note' : 'Favorite Note',
+              onPressed: () {
+                setState(() {
+                  _currentNote = _currentNote.copyWith(isFavorite: !_currentNote.isFavorite);
+                });
+                _triggerAutoSave();
+              },
+            ),
+
+            IconButton(
+              icon: Icon(
+                _currentNote.tagIds.isNotEmpty ? Icons.label_rounded : Icons.label_outline_rounded,
+                color: _currentNote.tagIds.isNotEmpty ? AppColors.primary : secondaryTextColor,
+              ),
+              tooltip: 'Assign Tags',
+              onPressed: _showTagSelector,
+            ),
+
             IconButton(
               icon: Icon(
                 _currentNote.isPinned ? Icons.push_pin : Icons.push_pin_outlined,
@@ -545,6 +588,15 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
               ),
               onSelected: (val) async {
                 switch (val) {
+                  case 'favorite':
+                    setState(() {
+                      _currentNote = _currentNote.copyWith(isFavorite: !_currentNote.isFavorite);
+                    });
+                    _triggerAutoSave();
+                    break;
+                  case 'tags':
+                    _showTagSelector();
+                    break;
                   case 'voice':
                     setState(() {
                       _showAudioRecorder = true;
@@ -587,6 +639,30 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                 }
               },
               itemBuilder: (context) => [
+                PopupMenuItem(
+                  value: 'favorite',
+                  child: Row(
+                    children: [
+                      Icon(
+                        _currentNote.isFavorite ? Icons.star_rounded : Icons.star_outline_rounded,
+                        size: 18,
+                        color: _currentNote.isFavorite ? Colors.amber : null,
+                      ),
+                      const SizedBox(width: 10),
+                      Text(_currentNote.isFavorite ? 'Remove from Favorites' : 'Add to Favorites'),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'tags',
+                  child: Row(
+                    children: [
+                      Icon(Icons.label_outline_rounded, size: 18),
+                      SizedBox(width: 10),
+                      Text('Assign Tags'),
+                    ],
+                  ),
+                ),
                 PopupMenuItem(
                   value: 'voice',
                   child: Row(
@@ -676,13 +752,40 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
               child: ListView(
                 padding: const EdgeInsets.symmetric(horizontal: AppConstants.paddingMedium),
                 children: [
-                  if (currentFolder != null) ...[
+                  if (currentFolder != null || noteTags.isNotEmpty) ...[
                     Align(
                       alignment: Alignment.centerLeft,
-                      child: ActionChip(
-                        avatar: const Icon(Icons.folder_outlined, size: 14),
-                        label: Text(currentFolder.name),
-                        onPressed: () => _showFolderSelector(folders),
+                      child: Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          if (currentFolder != null)
+                            ActionChip(
+                              avatar: const Icon(Icons.folder_outlined, size: 14),
+                              label: Text(currentFolder.name),
+                              visualDensity: VisualDensity.compact,
+                              onPressed: () => _showFolderSelector(folders),
+                            ),
+                          for (final tag in noteTags)
+                            TagChip(
+                              tag: tag,
+                              onDeleted: () {
+                                setState(() {
+                                  _currentNote = _currentNote.copyWith(
+                                    tagIds: _currentNote.tagIds.where((id) => id != tag.id).toList(),
+                                  );
+                                });
+                                _triggerAutoSave();
+                              },
+                            ),
+                          ActionChip(
+                            avatar: const Icon(Icons.add, size: 14),
+                            label: const Text('Add Tag', style: TextStyle(fontSize: 12)),
+                            visualDensity: VisualDensity.compact,
+                            onPressed: _showTagSelector,
+                          ),
+                        ],
                       ),
                     ),
                     const SizedBox(height: 8),
