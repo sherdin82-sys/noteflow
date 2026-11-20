@@ -2421,7 +2421,7 @@ Future<void> main() async {
   expect(fetchedFolderNote?.tagIds.contains('tag-ideas') == true, 'Test 20: Tags remain intact with folder');
 
   // Test NoteFilterState with favorites and tags
-  final filterState = const NoteFilterState(
+  const filterState = NoteFilterState(
     isFavoritesOnly: true,
     selectedTagIds: {'tag-ideas'},
     tagMatchMode: TagFilterMatchMode.any,

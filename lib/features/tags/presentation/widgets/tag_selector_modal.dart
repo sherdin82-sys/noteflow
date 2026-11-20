@@ -8,27 +8,29 @@ import 'tag_dialog.dart';
 
 class TagSelectorModal extends ConsumerStatefulWidget {
   final List<String> initialSelectedTagIds;
-  final ValueChanged<List<String>> onTagsChanged;
+  final ValueChanged<List<String>>? onTagsChanged;
 
   const TagSelectorModal({
     super.key,
     required this.initialSelectedTagIds,
-    required this.onTagsChanged,
+    this.onTagsChanged,
   });
 
-  static Future<void> show({
+  static Future<List<String>?> show({
     required BuildContext context,
-    required List<String> initialSelectedTagIds,
-    required ValueChanged<List<String>> onTagsChanged,
+    List<String> initialSelectedTagIds = const [],
+    List<String>? selectedTagIds,
+    ValueChanged<List<String>>? onTagsChanged,
   }) {
-    return showModalBottomSheet(
+    final effectiveIds = selectedTagIds ?? initialSelectedTagIds;
+    return showModalBottomSheet<List<String>>(
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(AppConstants.radiusLarge)),
       ),
       builder: (_) => TagSelectorModal(
-        initialSelectedTagIds: initialSelectedTagIds,
+        initialSelectedTagIds: effectiveIds,
         onTagsChanged: onTagsChanged,
       ),
     );
@@ -63,7 +65,7 @@ class _TagSelectorModalState extends ConsumerState<TagSelectorModal> {
         _selectedIds.add(tagId);
       }
     });
-    widget.onTagsChanged(_selectedIds.toList());
+    widget.onTagsChanged?.call(_selectedIds.toList());
   }
 
   Future<void> _createTag(List<TagEntity> allTags) async {
@@ -106,14 +108,22 @@ class _TagSelectorModalState extends ConsumerState<TagSelectorModal> {
                     'Assign Tags',
                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
                   ),
-                  tagsAsync.when(
-                    data: (tags) => TextButton.icon(
-                      onPressed: () => _createTag(tags),
-                      icon: const Icon(Icons.add, size: 16),
-                      label: const Text('New Tag'),
-                    ),
-                    loading: () => const SizedBox.shrink(),
-                    error: (_, __) => const SizedBox.shrink(),
+                  Row(
+                    children: [
+                      tagsAsync.when(
+                        data: (tags) => TextButton.icon(
+                          onPressed: () => _createTag(tags),
+                          icon: const Icon(Icons.add, size: 16),
+                          label: const Text('New Tag'),
+                        ),
+                        loading: () => const SizedBox.shrink(),
+                        error: (_, __) => const SizedBox.shrink(),
+                      ),
+                      TextButton(
+                        onPressed: () => Navigator.pop(context, _selectedIds.toList()),
+                        child: const Text('Done'),
+                      ),
+                    ],
                   ),
                 ],
               ),

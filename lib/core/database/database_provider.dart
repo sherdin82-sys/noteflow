@@ -3,7 +3,6 @@ import 'note_repository.dart';
 import 'local_note_repository.dart';
 import '../../shared/models/note_entity.dart';
 import '../../shared/models/folder_entity.dart';
-import '../../shared/models/tag_entity.dart';
 import '../../shared/models/voice_recording_entity.dart';
 import '../../features/reminders/services/reminder_native_bridge.dart';
 

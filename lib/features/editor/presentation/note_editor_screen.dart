@@ -12,7 +12,6 @@ import '../../../../core/utils/note_helper.dart';
 import '../../../../core/database/database_provider.dart';
 import '../../../../shared/models/note_entity.dart';
 import '../../../../shared/models/folder_entity.dart';
-import '../../../../shared/models/tag_entity.dart';
 import '../../tags/presentation/widgets/tag_chip.dart';
 import '../../tags/presentation/widgets/tag_selector_modal.dart';
 import 'widgets/color_tint_picker.dart';

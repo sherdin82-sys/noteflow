@@ -146,7 +146,7 @@ class _TagDialogState extends State<TagDialog> {
               spacing: 8,
               runSpacing: 8,
               children: TagDialog.tagColorPalette.map((colorHex) {
-                final color = _parseHex(colorHex);
+                final color = TagChip.parseColor(colorHex);
                 final isSelected = _selectedColorHex == colorHex;
 
                 return GestureDetector(
