@@ -39,7 +39,7 @@ class BackupManifest {
   const BackupManifest({
     this.formatVersion = 1,
     this.appIdentifier = 'com.noteflow.app',
-    this.appVersion = '1.5.1',
+    this.appVersion = '1.6.0',
     required this.createdAt,
     required this.stats,
     this.preferences = const {},

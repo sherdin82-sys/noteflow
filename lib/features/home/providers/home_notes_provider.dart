@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../../shared/models/note_entity.dart';
 import '../../../shared/models/note_filter.dart';
 import '../../../core/database/database_provider.dart';
@@ -16,6 +17,8 @@ class NoteFilterNotifier extends StateNotifier<NoteFilterState> {
     state = state.copyWith(
       folderFilter: const FolderFilter.all(),
       isFavoritesOnly: false,
+      isRecentOnly: false,
+      isPinnedOnly: false,
       clearTags: true,
     );
   }
@@ -25,6 +28,8 @@ class NoteFilterNotifier extends StateNotifier<NoteFilterState> {
     final next = !state.isFavoritesOnly;
     state = state.copyWith(
       isFavoritesOnly: next,
+      isRecentOnly: false,
+      isPinnedOnly: false,
       // When entering Favorites, reset to All Notes folder filter
       clearFolder: next,
     );
@@ -34,6 +39,52 @@ class NoteFilterNotifier extends StateNotifier<NoteFilterState> {
   void setFavoritesOnly(bool value) {
     state = state.copyWith(
       isFavoritesOnly: value,
+      isRecentOnly: false,
+      isPinnedOnly: false,
+      clearFolder: value,
+    );
+  }
+
+  /// Toggle Recent filter
+  void toggleRecentOnly() {
+    final next = !state.isRecentOnly;
+    state = state.copyWith(
+      isRecentOnly: next,
+      isFavoritesOnly: false,
+      isPinnedOnly: false,
+      clearFolder: next,
+      sortOrder: NoteSortOrder.recentlyModified,
+    );
+  }
+
+  /// Explicitly set Recent filter
+  void setRecentOnly(bool value) {
+    state = state.copyWith(
+      isRecentOnly: value,
+      isFavoritesOnly: false,
+      isPinnedOnly: false,
+      clearFolder: value,
+      sortOrder: NoteSortOrder.recentlyModified,
+    );
+  }
+
+  /// Toggle Pinned filter
+  void togglePinnedOnly() {
+    final next = !state.isPinnedOnly;
+    state = state.copyWith(
+      isPinnedOnly: next,
+      isFavoritesOnly: false,
+      isRecentOnly: false,
+      clearFolder: next,
+    );
+  }
+
+  /// Explicitly set Pinned filter
+  void setPinnedOnly(bool value) {
+    state = state.copyWith(
+      isPinnedOnly: value,
+      isFavoritesOnly: false,
+      isRecentOnly: false,
       clearFolder: value,
     );
   }
@@ -67,6 +118,8 @@ class NoteFilterNotifier extends StateNotifier<NoteFilterState> {
       state = state.copyWith(
         folderFilter: FolderFilter.folder(folderId),
         isFavoritesOnly: false,
+        isRecentOnly: false,
+        isPinnedOnly: false,
       );
     }
   }
@@ -74,7 +127,7 @@ class NoteFilterNotifier extends StateNotifier<NoteFilterState> {
   /// Sets selected folder: null unconditionally selects All Notes
   void setSelectedFolder(String? folderId) {
     if (folderId == null) {
-      state = state.copyWith(folderFilter: const FolderFilter.all());
+      selectAllNotes();
     } else {
       selectFolder(folderId);
     }
@@ -89,9 +142,10 @@ class NoteFilterNotifier extends StateNotifier<NoteFilterState> {
   }
 }
 
-final noteFilterProvider = StateNotifierProvider<NoteFilterNotifier, NoteFilterState>((ref) {
-  return NoteFilterNotifier();
-});
+final noteFilterProvider =
+    StateNotifierProvider<NoteFilterNotifier, NoteFilterState>((ref) {
+      return NoteFilterNotifier();
+    });
 
 class HomeNotesData {
   final List<NoteEntity> pinnedNotes;
@@ -138,6 +192,27 @@ final homeNotesProvider = Provider<AsyncValue<HomeNotesData>>((ref) {
       filtered = filtered.where((note) => note.isFavorite).toList();
     }
 
+    // 3. Filter by Recent (updated within 7 days or recently modified)
+    if (filter.isRecentOnly) {
+      final cutoff = DateTime.now().subtract(const Duration(days: 7));
+      final recent = filtered
+          .where((note) => note.updatedAt.isAfter(cutoff))
+          .toList();
+      // If none in last 7 days, fallback to the 10 most recently modified notes
+      if (recent.isNotEmpty) {
+        filtered = recent;
+      } else if (filtered.isNotEmpty) {
+        final sorted = List<NoteEntity>.from(filtered)
+          ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+        filtered = sorted.take(10).toList();
+      }
+    }
+
+    // 4. Filter by Pinned
+    if (filter.isPinnedOnly) {
+      filtered = filtered.where((note) => note.isPinned).toList();
+    }
+
     // 3. Filter by Tags
     if (filter.selectedTagIds.isNotEmpty) {
       filtered = filtered.where((note) {
@@ -154,7 +229,8 @@ final homeNotesProvider = Provider<AsyncValue<HomeNotesData>>((ref) {
       final query = filter.searchQuery.toLowerCase().trim();
       filtered = filtered.where((note) {
         final titleMatch = note.title.toLowerCase().contains(query);
-        final plainContent = NoteHelper.extractPlainText(note.content).toLowerCase();
+        final plainContent = NoteHelper.extractPlainText(note.content)
+            .toLowerCase();
         final contentMatch = plainContent.contains(query);
         final tagMatch = note.tagIds.any((tid) {
           final tag = tagMap[tid];

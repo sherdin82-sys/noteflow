@@ -1,6 +1,6 @@
 class AppConstants {
   static const String appName = 'NoteFlow';
-  static const String appVersion = '1.5.1';
+  static const String appVersion = '1.6.0';
 
   // Animation & timing
   static const Duration defaultAnimationDuration = Duration(milliseconds: 250);

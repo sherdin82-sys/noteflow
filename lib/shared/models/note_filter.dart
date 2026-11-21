@@ -1,14 +1,6 @@
-enum NoteSortOrder {
-  recentlyModified,
-  recentlyCreated,
-  titleAZ,
-  titleZA,
-}
+enum NoteSortOrder { recentlyModified, recentlyCreated, titleAZ, titleZA }
 
-enum TagFilterMatchMode {
-  any,
-  all,
-}
+enum TagFilterMatchMode { any, all }
 
 sealed class FolderFilter {
   const FolderFilter();
@@ -18,16 +10,17 @@ sealed class FolderFilter {
 
   bool get isAll => this is AllNotesFilter;
   String? get folderId => switch (this) {
-        AllNotesFilter() => null,
-        SpecificFolderFilter(folderId: final id) => id,
-      };
+    AllNotesFilter() => null,
+    SpecificFolderFilter(folderId: final id) => id,
+  };
 }
 
 class AllNotesFilter extends FolderFilter {
   const AllNotesFilter();
 
   @override
-  bool operator ==(Object other) => identical(this, other) || other is AllNotesFilter;
+  bool operator ==(Object other) =>
+      identical(this, other) || other is AllNotesFilter;
 
   @override
   int get hashCode => 0;
@@ -58,6 +51,8 @@ class NoteFilterState {
   final String searchQuery;
   final FolderFilter folderFilter;
   final bool isFavoritesOnly;
+  final bool isRecentOnly;
+  final bool isPinnedOnly;
   final Set<String> selectedTagIds;
   final TagFilterMatchMode tagMatchMode;
   final bool showArchived;
@@ -67,6 +62,8 @@ class NoteFilterState {
     this.searchQuery = '',
     this.folderFilter = const FolderFilter.all(),
     this.isFavoritesOnly = false,
+    this.isRecentOnly = false,
+    this.isPinnedOnly = false,
     this.selectedTagIds = const {},
     this.tagMatchMode = TagFilterMatchMode.any,
     this.showArchived = false,
@@ -75,7 +72,12 @@ class NoteFilterState {
 
   /// Backward-compatible convenience getters
   String? get selectedFolderId => folderFilter.folderId;
-  bool get isAllNotes => folderFilter.isAll && !isFavoritesOnly && selectedTagIds.isEmpty;
+  bool get isAllNotes =>
+      folderFilter.isAll &&
+      !isFavoritesOnly &&
+      !isRecentOnly &&
+      !isPinnedOnly &&
+      selectedTagIds.isEmpty;
   bool get hasTagFilter => selectedTagIds.isNotEmpty;
 
   NoteFilterState copyWith({
@@ -84,6 +86,8 @@ class NoteFilterState {
     String? selectedFolderId,
     bool clearFolder = false,
     bool? isFavoritesOnly,
+    bool? isRecentOnly,
+    bool? isPinnedOnly,
     Set<String>? selectedTagIds,
     bool clearTags = false,
     TagFilterMatchMode? tagMatchMode,
@@ -114,6 +118,8 @@ class NoteFilterState {
       searchQuery: searchQuery ?? this.searchQuery,
       folderFilter: newFolderFilter,
       isFavoritesOnly: isFavoritesOnly ?? this.isFavoritesOnly,
+      isRecentOnly: isRecentOnly ?? this.isRecentOnly,
+      isPinnedOnly: isPinnedOnly ?? this.isPinnedOnly,
       selectedTagIds: newSelectedTagIds,
       tagMatchMode: tagMatchMode ?? this.tagMatchMode,
       showArchived: showArchived ?? this.showArchived,
