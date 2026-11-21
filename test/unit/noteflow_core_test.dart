@@ -3097,8 +3097,9 @@ Future<void> main() async {
   final remindersTestDir = Directory(
     '${Directory.systemTemp.path}/noteflow_reminders_test_${DateTime.now().millisecondsSinceEpoch}',
   );
-  if (!remindersTestDir.existsSync())
+  if (!remindersTestDir.existsSync()) {
     remindersTestDir.createSync(recursive: true);
+  }
   final remindersDbPath = '${remindersTestDir.path}/noteflow_data.json';
 
   final remRepo = LocalNoteRepository(

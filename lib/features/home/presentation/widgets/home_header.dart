@@ -252,7 +252,6 @@ class HomeHeader extends StatelessWidget {
 
         // Sort Order Menu
         PopupMenuButton<NoteSortOrder>(
-          visualDensity: VisualDensity.compact,
           icon: Icon(Icons.swap_vert_rounded, size: 22, color: secondaryColor),
           tooltip: 'Sort Notes',
           shape: RoundedRectangleBorder(
@@ -306,7 +305,6 @@ class HomeHeader extends StatelessWidget {
 
         // Quick Overflow Menu for secondary options
         PopupMenuButton<String>(
-          visualDensity: VisualDensity.compact,
           icon: Icon(Icons.more_vert_rounded, size: 20, color: secondaryColor),
           tooltip: 'More Options',
           shape: RoundedRectangleBorder(

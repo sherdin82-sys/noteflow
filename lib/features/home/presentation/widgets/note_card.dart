@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/constants/app_constants.dart';
 import '../../../../core/theme/app_colors.dart';
-import '../../../../core/theme/app_typography.dart';
 import '../../../../core/utils/date_formatter.dart';
 import '../../../../core/utils/note_helper.dart';
 import '../../../../core/utils/audio_helper.dart';
@@ -420,16 +419,16 @@ class NoteCard extends ConsumerWidget {
                           color: AppColors.accent.withAlpha(20),
                           borderRadius: BorderRadius.circular(6),
                         ),
-                        child: Row(
+                        child: const Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(
+                            Icon(
                               Icons.checklist_rounded,
                               size: 11,
                               color: AppColors.accent,
                             ),
-                            const SizedBox(width: 4),
-                            const Text(
+                            SizedBox(width: 4),
+                            Text(
                               'Checklist',
                               style: TextStyle(
                                 fontSize: 10.5,
@@ -463,9 +462,6 @@ class NoteCard extends ConsumerWidget {
 
   Widget _buildCardTagChip(dynamic tag, bool isDark) {
     final tagColor = TagChip.parseColor(tag.colorHex);
-    final secondaryTextColor = isDark
-        ? AppColors.darkTextSecondary
-        : AppColors.lightTextSecondary;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -710,7 +706,6 @@ class NoteCard extends ConsumerWidget {
       icon: Icon(Icons.more_vert_rounded, size: 18, color: color),
       padding: EdgeInsets.zero,
       constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
-      visualDensity: VisualDensity.compact,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
       ),
