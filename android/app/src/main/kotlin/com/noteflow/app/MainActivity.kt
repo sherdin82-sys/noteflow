@@ -18,7 +18,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.FileProvider
 import com.noteflow.app.reminders.NotificationActionReceiver
 import com.noteflow.app.reminders.ReminderManager
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import kotlinx.coroutines.CoroutineScope
@@ -32,7 +32,7 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.util.UUID
 
-class MainActivity : FlutterActivity() {
+class MainActivity : FlutterFragmentActivity() {
     private val NATIVE_CHANNEL = "com.noteflow.app/native"
     private val REMINDERS_CHANNEL = "com.noteflow.app/reminders"
     private val ATTACHMENTS_CHANNEL = "com.noteflow.app/attachments"
@@ -83,7 +83,7 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, NATIVE_CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "getAppVersion" -> {
-                    result.success("1.6.0")
+                    result.success("1.7.0")
                 }
                 "getDeviceInfo" -> {
                     val info = mapOf(
