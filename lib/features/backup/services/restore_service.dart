@@ -259,7 +259,7 @@ class RestoreService {
       }
 
       // Check 10: CRC-32 verification
-      if (entry.crc32 != 0 && entry.content != null) {
+      if (entry.crc32 != 0) {
         final calculatedCrc = getCrc32(entry.content as List<int>);
         if (calculatedCrc != entry.crc32) {
           throw FormatException('CRC-32 checksum mismatch for entry: $name');

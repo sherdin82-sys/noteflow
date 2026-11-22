@@ -1715,6 +1715,7 @@ class LocalNoteRepository implements NoteRepository {
 
   /// Atomically commits a staged attachment and persists its metadata,
   /// guarded by the per-note mutex and durable transaction journal.
+  @override
   Future<AttachmentEntity?> importAndSaveAttachment({
     required String stagingPath,
     required String originalName,
