@@ -15,6 +15,8 @@ class AlarmReceiver : BroadcastReceiver() {
         val noteId = intent.getStringExtra(ReminderManager.EXTRA_NOTE_ID) ?: ""
         val checklistItemId = intent.getStringExtra(ReminderManager.EXTRA_CHECKLIST_ITEM_ID)
         val voiceRecordingId = intent.getStringExtra(ReminderManager.EXTRA_VOICE_RECORDING_ID)
+        val occurrenceEpochMs = intent.getLongExtra(ReminderManager.EXTRA_OCCURRENCE_EPOCH_MS, -1L)
+        val effectiveOccurrenceEpochMs = if (occurrenceEpochMs > 0) occurrenceEpochMs else System.currentTimeMillis()
 
         val notification = ReminderManager.buildNotification(
             context = context,
@@ -23,7 +25,8 @@ class AlarmReceiver : BroadcastReceiver() {
             body = body,
             noteId = noteId,
             checklistItemId = checklistItemId,
-            voiceRecordingId = voiceRecordingId
+            voiceRecordingId = voiceRecordingId,
+            occurrenceEpochMs = effectiveOccurrenceEpochMs
         )
 
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager

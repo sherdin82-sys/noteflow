@@ -22,6 +22,7 @@ class NotificationActionReceiver : BroadcastReceiver() {
         val voiceRecordingId = intent.getStringExtra(ReminderManager.EXTRA_VOICE_RECORDING_ID)
         val title = intent.getStringExtra(ReminderManager.EXTRA_TITLE) ?: ""
         val body = intent.getStringExtra(ReminderManager.EXTRA_BODY) ?: ""
+        val occurrenceEpochMs = intent.getLongExtra(ReminderManager.EXTRA_OCCURRENCE_EPOCH_MS, -1L)
 
         // Dismiss the active notification in system tray immediately
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -29,6 +30,7 @@ class NotificationActionReceiver : BroadcastReceiver() {
 
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val now = System.currentTimeMillis()
+        val actionId = java.util.UUID.randomUUID().toString()
 
         when (intent.action) {
             ReminderManager.ACTION_SNOOZE -> {
@@ -48,15 +50,17 @@ class NotificationActionReceiver : BroadcastReceiver() {
 
                 // Journal action in SharedPreferences for Flutter repository sync
                 val actionData = JSONObject().apply {
+                    put("actionId", actionId)
                     put("action", "snooze")
                     put("notificationId", notificationId)
                     put("noteId", noteId)
                     put("checklistItemId", checklistItemId)
                     put("voiceRecordingId", voiceRecordingId)
+                    put("occurrenceEpochMs", occurrenceEpochMs)
                     put("snoozedUntilMs", newTriggerTime)
                     put("timestampMs", now)
                 }
-                prefs.edit().putString("action_${notificationId}_$now", actionData.toString()).apply()
+                prefs.edit().putString("action_$actionId", actionData.toString()).apply()
 
                 // Notify running Flutter instance if active
                 MainActivity.notifyActionReceived(actionData.toString())
@@ -68,14 +72,16 @@ class NotificationActionReceiver : BroadcastReceiver() {
 
                 // Journal action in SharedPreferences for Flutter repository sync
                 val actionData = JSONObject().apply {
+                    put("actionId", actionId)
                     put("action", "markDone")
                     put("notificationId", notificationId)
                     put("noteId", noteId)
                     put("checklistItemId", checklistItemId)
                     put("voiceRecordingId", voiceRecordingId)
+                    put("occurrenceEpochMs", occurrenceEpochMs)
                     put("timestampMs", now)
                 }
-                prefs.edit().putString("action_${notificationId}_$now", actionData.toString()).apply()
+                prefs.edit().putString("action_$actionId", actionData.toString()).apply()
 
                 // Notify running Flutter instance if active
                 MainActivity.notifyActionReceived(actionData.toString())

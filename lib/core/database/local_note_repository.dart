@@ -20,12 +20,20 @@ class LocalNoteRepository implements NoteRepository {
   final List<VoiceRecordingEntity> _voiceRecordings = [];
   final List<ReminderEntity> _reminders = [];
   final List<AttachmentEntity> _attachments = [];
+  final List<String> _processedActionIds = [];
 
   final PerNoteMutex _noteMutex = PerNoteMutex();
+  final PerNoteMutex _dbWriteMutex = PerNoteMutex();
 
   PerNoteMutex get noteMutex => _noteMutex;
+  PerNoteMutex get dbWriteMutex => _dbWriteMutex;
 
   int _nextNotificationId = 1000;
+  bool _isDataRecoveryMode = false;
+  String? _dataRecoveryError;
+
+  bool get isDataRecoveryMode => _isDataRecoveryMode;
+  String? get dataRecoveryError => _dataRecoveryError;
 
   final _notesStreamController = StreamController<List<NoteEntity>>.broadcast();
   final _foldersStreamController =
@@ -88,83 +96,176 @@ class LocalNoteRepository implements NoteRepository {
       }
 
       final file = await _getStorageFile();
-      if (file != null && await file.exists()) {
-        final content = await file.readAsString();
-        if (content.trim().isNotEmpty) {
-          final data = jsonDecode(content) as Map<String, dynamic>;
-          if (data.containsKey('theme_mode')) {
-            _themeMode = data['theme_mode'] as String? ?? 'dark';
-          }
-          final rawFolders = data['folders'] as List<dynamic>? ?? [];
-          final rawTags = data['tags'] as List<dynamic>? ?? [];
-          final rawNotes = data['notes'] as List<dynamic>? ?? [];
-          final rawRecordings =
-              data['voice_recordings'] as List<dynamic>? ?? [];
+      if (file == null) {
+        _initialized = true;
+        return;
+      }
 
-          _folders.clear();
-          for (final f in rawFolders) {
-            _folders
-                .add(FolderEntity.fromMap(Map<String, dynamic>.from(f as Map)));
-          }
+      final bakFile = File('${file.path}.bak');
+      final tmpFile = File('${file.path}.tmp');
 
-          _tags.clear();
-          for (final t in rawTags) {
-            _tags.add(TagEntity.fromMap(Map<String, dynamic>.from(t as Map)));
-          }
+      Map<String, dynamic>? data;
 
-          _notes.clear();
-          for (final n in rawNotes) {
-            _notes.add(NoteEntity.fromMap(Map<String, dynamic>.from(n as Map)));
+      Future<Map<String, dynamic>?> tryLoadJson(File candidate) async {
+        try {
+          if (!await candidate.exists()) return null;
+          final len = await candidate.length();
+          if (len <= 0) return null;
+          final content = await candidate.readAsString();
+          if (content.trim().isEmpty) return null;
+          final decoded = jsonDecode(content);
+          if (decoded is Map<String, dynamic> &&
+              (decoded.containsKey('notes') ||
+                  decoded.containsKey('reminders') ||
+                  decoded.containsKey('folders'))) {
+            return decoded;
           }
+        } catch (_) {}
+        return null;
+      }
 
-          _voiceRecordings.clear();
-          for (final r in rawRecordings) {
-            _voiceRecordings.add(VoiceRecordingEntity.fromMap(
-                Map<String, dynamic>.from(r as Map)));
-          }
+      // 1. Try primary storage file
+      data = await tryLoadJson(file);
 
-          if (data.containsKey('next_notification_id')) {
-            _nextNotificationId = data['next_notification_id'] as int? ?? 1000;
-          }
-          final rawReminders = data['reminders'] as List<dynamic>? ?? [];
-          _reminders.clear();
-          for (final r in rawReminders) {
-            _reminders.add(
-                ReminderEntity.fromMap(Map<String, dynamic>.from(r as Map)));
-          }
-
-          final rawAttachments = data['attachments'] as List<dynamic>? ?? [];
-          _attachments.clear();
-          for (final a in rawAttachments) {
-            if (a is Map) {
-              _attachments
-                  .add(AttachmentEntity.fromMap(Map<String, dynamic>.from(a)));
-            }
-          }
-
-          await _ensureSampleAudioFiles();
-
+      // 2. Fallback to .tmp file if primary missing or corrupt
+      if (data == null && await tmpFile.exists()) {
+        data = await tryLoadJson(tmpFile);
+        if (data != null) {
           try {
-            String? baseDir;
-            if (_directoryProvider != null) {
-              baseDir = await _directoryProvider!();
-            } else if (_customStoragePath != null) {
-              baseDir = File(_customStoragePath!).parent.path;
-            }
-            if (baseDir != null) {
-              await _runStartupRecovery(baseDir);
-            }
+            await tmpFile.copy(file.path);
           } catch (_) {}
-
-          _initialized = true;
-          _emitNotes();
-          _emitFolders();
-          _emitTags();
-          _emitRecordings();
-          _emitReminders();
-          _emitAttachments();
-          return;
         }
+      }
+
+      // 3. Fallback to .bak file if primary and tmp failed
+      if (data == null && await bakFile.exists()) {
+        data = await tryLoadJson(bakFile);
+        if (data != null) {
+          try {
+            await bakFile.copy(file.path);
+          } catch (_) {}
+        }
+      }
+
+      final bool primaryExisted = await file.exists();
+      final bool tmpExisted = await tmpFile.exists();
+      final bool bakExisted = await bakFile.exists();
+      final bool anyFileExisted = primaryExisted || tmpExisted || bakExisted;
+
+      if (data == null && anyFileExisted) {
+        // Files existed on disk but were unreadable or corrupt!
+        // Preserve corrupt files as noteflow_data.json.corrupt.<timestamp>
+        final timestamp = DateTime.now().millisecondsSinceEpoch;
+        if (primaryExisted) {
+          try {
+            await file.copy('${file.path}.corrupt.$timestamp');
+          } catch (_) {}
+        }
+
+        // Enter Safe Data Recovery Mode - NEVER SILENTLY SEED DEMO DATA
+        _notes.clear();
+        _folders.clear();
+        _tags.clear();
+        _voiceRecordings.clear();
+        _reminders.clear();
+        _attachments.clear();
+        _isDataRecoveryMode = true;
+        _dataRecoveryError =
+            'Unable to read note data. Please restore from a backup or contact support.';
+        _initialized = true;
+        _emitNotes();
+        _emitFolders();
+        _emitTags();
+        _emitRecordings();
+        _emitReminders();
+        _emitAttachments();
+        return;
+      }
+
+      if (data != null) {
+        if (data.containsKey('theme_mode')) {
+          _themeMode = data['theme_mode'] as String? ?? 'dark';
+        }
+        final rawFolders = data['folders'] as List<dynamic>? ?? [];
+        final rawTags = data['tags'] as List<dynamic>? ?? [];
+        final rawNotes = data['notes'] as List<dynamic>? ?? [];
+        final rawRecordings =
+            data['voice_recordings'] as List<dynamic>? ?? [];
+
+        _folders.clear();
+        for (final f in rawFolders) {
+          _folders
+              .add(FolderEntity.fromMap(Map<String, dynamic>.from(f as Map)));
+        }
+
+        _tags.clear();
+        for (final t in rawTags) {
+          _tags.add(TagEntity.fromMap(Map<String, dynamic>.from(t as Map)));
+        }
+
+        _notes.clear();
+        for (final n in rawNotes) {
+          _notes.add(NoteEntity.fromMap(Map<String, dynamic>.from(n as Map)));
+        }
+
+        _voiceRecordings.clear();
+        for (final r in rawRecordings) {
+          _voiceRecordings.add(VoiceRecordingEntity.fromMap(
+              Map<String, dynamic>.from(r as Map)));
+        }
+
+        if (data.containsKey('next_notification_id')) {
+          _nextNotificationId = data['next_notification_id'] as int? ?? 1000;
+        }
+        final rawReminders = data['reminders'] as List<dynamic>? ?? [];
+        _reminders.clear();
+        for (final r in rawReminders) {
+          _reminders.add(
+              ReminderEntity.fromMap(Map<String, dynamic>.from(r as Map)));
+        }
+
+        final rawAttachments = data['attachments'] as List<dynamic>? ?? [];
+        _attachments.clear();
+        for (final a in rawAttachments) {
+          if (a is Map) {
+            _attachments
+                .add(AttachmentEntity.fromMap(Map<String, dynamic>.from(a)));
+          }
+        }
+
+        if (data.containsKey('processed_action_ids')) {
+          final rawActionIds =
+              data['processed_action_ids'] as List<dynamic>? ?? [];
+          _processedActionIds.clear();
+          for (final id in rawActionIds) {
+            if (id is String && id.trim().isNotEmpty) {
+              _processedActionIds.add(id.trim());
+            }
+          }
+        }
+
+        await _ensureSampleAudioFiles();
+
+        try {
+          String? baseDir;
+          if (_directoryProvider != null) {
+            baseDir = await _directoryProvider!();
+          } else if (_customStoragePath != null) {
+            baseDir = File(_customStoragePath!).parent.path;
+          }
+          if (baseDir != null) {
+            await _runStartupRecovery(baseDir);
+          }
+        } catch (_) {}
+
+        _initialized = true;
+        _emitNotes();
+        _emitFolders();
+        _emitTags();
+        _emitRecordings();
+        _emitReminders();
+        _emitAttachments();
+        return;
       }
 
       // If file didn't exist or was empty, seed demo data and save to disk
@@ -562,24 +663,60 @@ class LocalNoteRepository implements NoteRepository {
 
   Future<void> _saveToDisk() async {
     if (!_enableDiskPersistence) return;
-    try {
-      final file = await _getStorageFile();
-      if (file == null) return;
-      final payload = {
-        'version': 1,
-        'theme_mode': _themeMode,
-        'next_notification_id': _nextNotificationId,
-        'folders': _folders.map((f) => f.toMap()).toList(),
-        'tags': _tags.map((t) => t.toMap()).toList(),
-        'notes': _notes.map((n) => n.toMap()).toList(),
-        'voice_recordings': _voiceRecordings.map((r) => r.toMap()).toList(),
-        'reminders': _reminders.map((r) => r.toMap()).toList(),
-        'attachments': _attachments.map((a) => a.toMap()).toList(),
-      };
-      await file.writeAsString(jsonEncode(payload), flush: true);
-    } catch (_) {
-      // Silent error fallback
+    if (_isDataRecoveryMode) {
+      // In Data Recovery Mode, avoid overwriting disk until explicitly resolved or restored
+      return;
     }
+    await _dbWriteMutex.runLocked('__db_write__', () async {
+      try {
+        final file = await _getStorageFile();
+        if (file == null) return;
+        final payload = {
+          'version': 1,
+          'theme_mode': _themeMode,
+          'next_notification_id': _nextNotificationId,
+          'folders': _folders.map((f) => f.toMap()).toList(),
+          'tags': _tags.map((t) => t.toMap()).toList(),
+          'notes': _notes.map((n) => n.toMap()).toList(),
+          'voice_recordings': _voiceRecordings.map((r) => r.toMap()).toList(),
+          'reminders': _reminders.map((r) => r.toMap()).toList(),
+          'attachments': _attachments.map((a) => a.toMap()).toList(),
+          'processed_action_ids': _processedActionIds,
+        };
+        final jsonString = jsonEncode(payload);
+
+        // 1. Write to noteflow_data.json.tmp (flush: true, file descriptor sync)
+        final tmpFile = File('${file.path}.tmp');
+        await tmpFile.writeAsString(jsonString, flush: true);
+
+        // 2. Validate noteflow_data.json.tmp
+        final tmpLength = await tmpFile.length();
+        if (tmpLength <= 0) {
+          throw StateError('Temporary save file length is zero');
+        }
+        final validatedContent = await tmpFile.readAsString();
+        final validatedMap = jsonDecode(validatedContent);
+        if (validatedMap is! Map<String, dynamic> ||
+            !validatedMap.containsKey('notes') ||
+            !validatedMap.containsKey('reminders')) {
+          throw StateError(
+              'Temporary save file validation failed: missing required root keys');
+        }
+
+        // 3. Maintain .bak fallback
+        if (await file.exists() && await file.length() > 0) {
+          final bakFile = File('${file.path}.bak');
+          try {
+            await file.copy(bakFile.path);
+          } catch (_) {}
+        }
+
+        // 4. POSIX Atomic Rename (.tmp -> noteflow_data.json)
+        await tmpFile.rename(file.path);
+      } catch (_) {
+        // Silent error fallback
+      }
+    });
   }
 
   void _seedInitialData() {
@@ -798,6 +935,25 @@ class LocalNoteRepository implements NoteRepository {
     final id = _nextNotificationId++;
     _saveToDisk();
     return id;
+  }
+
+  List<String> get processedActionIds => List.unmodifiable(_processedActionIds);
+
+  bool isActionProcessed(String actionId) {
+    if (actionId.trim().isEmpty) return false;
+    return _processedActionIds.contains(actionId.trim());
+  }
+
+  Future<void> recordProcessedActionId(String actionId) async {
+    final clean = actionId.trim();
+    if (clean.isEmpty) return;
+    if (!_processedActionIds.contains(clean)) {
+      _processedActionIds.add(clean);
+      if (_processedActionIds.length > 500) {
+        _processedActionIds.removeRange(0, _processedActionIds.length - 500);
+      }
+      await _saveToDisk();
+    }
   }
 
   bool applyJournalAction(Map<String, dynamic> action) {
@@ -1276,6 +1432,8 @@ class LocalNoteRepository implements NoteRepository {
     List<AttachmentEntity>? attachments,
     String? themeMode,
   }) async {
+    _isDataRecoveryMode = false;
+    _dataRecoveryError = null;
     if (themeMode != null) _themeMode = themeMode;
     _folders.clear();
     _folders.addAll(folders);

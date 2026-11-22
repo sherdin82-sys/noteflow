@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'reminder_scheduler.dart';
+import 'reminder_action_coordinator.dart';
 
 class ReminderNativeBridge {
   static const MethodChannel _channel = MethodChannel('com.noteflow.app/reminders');
@@ -139,6 +140,19 @@ class ReminderNativeBridge {
     }
   }
 
+  /// Acknowledges processed action IDs so native SharedPreferences can selectively delete them
+  static Future<bool> ackPendingJournalActions(List<String> actionIds) async {
+    if (actionIds.isEmpty) return true;
+    try {
+      final result = await _channel.invokeMethod<bool>('ackPendingJournalActions', {
+        'actionIds': actionIds,
+      });
+      return result ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Check if app was cold-started from notification click
   static Future<Map<String, dynamic>?> getInitialNotificationPayload() async {
     try {
@@ -148,6 +162,40 @@ class ReminderNativeBridge {
       }
     } catch (_) {}
     return null;
+  }
+
+  /// Check whether lock screen note previews are enabled (default: false / Private)
+  static Future<bool> areLockscreenPreviewsEnabled() async {
+    try {
+      final result = await _channel.invokeMethod<bool>('areLockscreenPreviewsEnabled');
+      return result ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Toggle lock screen note previews
+  static Future<bool> setLockscreenPreviewsEnabled(bool enabled) async {
+    try {
+      final result = await _channel.invokeMethod<bool>('setLockscreenPreviewsEnabled', {
+        'enabled': enabled,
+      });
+      return result ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Verifies that Flutter's getApplicationDocumentsDirectory matches Kotlin's canonical app_flutter dir
+  static Future<bool> verifyDocumentsPath(String path) async {
+    try {
+      final result = await _channel.invokeMethod<bool>('verifyDocumentsPath', {
+        'path': path,
+      });
+      return result ?? true;
+    } catch (_) {
+      return true;
+    }
   }
 }
 
@@ -179,4 +227,20 @@ class NativeReminderScheduler implements ReminderScheduler {
   Future<void> cancelAlarm(int notificationId) async {
     await ReminderNativeBridge.cancelAlarm(notificationId);
   }
+}
+
+class ReminderNativeJournalBridge implements ReminderJournalBridge {
+  const ReminderNativeJournalBridge();
+
+  @override
+  void initialize() => ReminderNativeBridge.initialize();
+
+  @override
+  Stream<Map<String, dynamic>> get onActionReceived => ReminderNativeBridge.onActionReceived;
+
+  @override
+  Future<List<Map<String, dynamic>>> getPendingJournalActions() => ReminderNativeBridge.getPendingJournalActions();
+
+  @override
+  Future<bool> ackPendingJournalActions(List<String> actionIds) => ReminderNativeBridge.ackPendingJournalActions(actionIds);
 }

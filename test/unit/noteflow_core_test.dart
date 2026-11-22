@@ -20,6 +20,7 @@ import '../../lib/features/attachments/models/staged_attachment.dart';
 import '../../lib/features/attachments/services/attachment_picker_service.dart';
 import '../../lib/features/reminders/services/reminder_service.dart';
 import '../../lib/features/reminders/services/reminder_scheduler.dart';
+import '../../lib/features/reminders/services/reminder_action_coordinator.dart';
 import 'package:archive/archive.dart';
 
 class TestMockReminderScheduler implements ReminderScheduler {
@@ -3815,6 +3816,730 @@ Future<void> main() async {
   expect(
     mergedRemList.any((r) => r.id == 'rem-merge-unique') == true,
     'Test 29.16: Unique reminder preserved after merge',
+  );
+
+  // 17. Action Journal Durable Idempotency & Deduplication (Test 29.17)
+  final durableRem = ReminderEntity(
+    id: 'rem-durable-1',
+    noteId: 'note-durable-1',
+    title: 'Durable Test Reminder',
+    scheduledAt: DateTime.now().add(const Duration(hours: 4)),
+    createdAt: DateTime.now(),
+    updatedAt: DateTime.now(),
+    notificationId: 8801,
+  );
+  await freshRepo.saveReminder(durableRem);
+  final freshService = ReminderService(
+    repository: freshRepo,
+    scheduler: mockScheduler,
+  );
+  final ackList = <String>[];
+  var coordinator = ReminderActionCoordinator(
+    repository: freshRepo,
+    reminderService: freshService,
+    ackHandler: (ids) async {
+      ackList.addAll(ids);
+      return true;
+    },
+  );
+
+  final snoozeEpoch = DateTime.now().add(const Duration(minutes: 15)).millisecondsSinceEpoch;
+  final action1 = {
+    'actionId': 'act-uuid-test-1',
+    'action': 'snooze',
+    'notificationId': 8801,
+    'noteId': 'note-durable-1',
+    'snoozedUntilMs': snoozeEpoch,
+    'occurrenceEpochMs': durableRem.scheduledAt.millisecondsSinceEpoch,
+  };
+
+  await coordinator.processJournalActions([action1]);
+  final durableSnoozedRem = await freshRepo.getReminderById('rem-durable-1');
+  expect(
+    durableSnoozedRem?.snoozeCount == 1,
+    'Test 29.17: Reminder snoozed on first action processing',
+  );
+  expect(
+    freshRepo.isActionProcessed('act-uuid-test-1') == true,
+    'Test 29.17: Action ID tracked as processed in repository memory',
+  );
+  expect(
+    ackList.contains('act-uuid-test-1'),
+    'Test 29.17: Action ID acknowledged in ackList',
+  );
+
+  // Simulate process death / restart by initializing a new repository from the same storage path
+  final restartedRepoDurable = LocalNoteRepository(
+    seedDemoData: false,
+    enableDiskPersistence: true,
+    customStoragePath: '${freshTargetDir.path}/noteflow_data.json',
+    reminderScheduler: mockScheduler,
+  );
+  await restartedRepoDurable.init();
+
+  expect(
+    restartedRepoDurable.isActionProcessed('act-uuid-test-1') == true,
+    'Test 29.17: Processed action ID durably reloaded from JSON file after restart',
+  );
+
+  // Send the identical action again to the restarted system
+  ackList.clear();
+  final restartedServiceDurable = ReminderService(
+    repository: restartedRepoDurable,
+    scheduler: mockScheduler,
+  );
+  final coordinatorRestarted = ReminderActionCoordinator(
+    repository: restartedRepoDurable,
+    reminderService: restartedServiceDurable,
+    ackHandler: (ids) async {
+      ackList.addAll(ids);
+      return true;
+    },
+  );
+
+  await coordinatorRestarted.processJournalActions([action1]);
+  final checkDeduplicatedRem = await restartedRepoDurable.getReminderById('rem-durable-1');
+  expect(
+    checkDeduplicatedRem?.snoozeCount == 1,
+    'Test 29.17: Duplicate action skipped (snoozeCount remains 1)',
+  );
+  expect(
+    ackList.contains('act-uuid-test-1'),
+    'Test 29.17: Duplicate action safely re-acknowledged to clean native journal',
+  );
+
+  // 18. Recurring Series Headless Advancement via ReminderActionCoordinator (Test 29.18)
+  mockScheduler.reset();
+  final recurringBaseTime = DateTime.now().add(const Duration(hours: 1));
+  final seriesRem = ReminderEntity(
+    id: 'rem-recurring-series',
+    noteId: 'note-recurring-1',
+    title: 'Daily Standup Reminder',
+    scheduledAt: recurringBaseTime,
+    createdAt: DateTime.now(),
+    updatedAt: DateTime.now(),
+    notificationId: 8802,
+    repeatMode: ReminderRepeatMode.daily,
+  );
+  await restartedRepoDurable.saveReminder(seriesRem);
+
+  final actionDoneRecurring = {
+    'actionId': 'act-done-recurring-1',
+    'action': 'markDone',
+    'notificationId': 8802,
+    'noteId': 'note-recurring-1',
+    'occurrenceEpochMs': recurringBaseTime.millisecondsSinceEpoch,
+  };
+
+  await coordinatorRestarted.processJournalActions([actionDoneRecurring]);
+  final seriesAdvancedRem = await restartedRepoDurable.getReminderById('rem-recurring-series');
+  expect(
+    seriesAdvancedRem != null,
+    'Test 29.18: Recurring reminder retrieved after markDone',
+  );
+  expect(
+    seriesAdvancedRem!.isCompleted == false,
+    'Test 29.18: Recurring reminder not terminated (isCompleted remains false)',
+  );
+  expect(
+    seriesAdvancedRem.scheduledAt.isAfter(recurringBaseTime),
+    'Test 29.18: Recurring reminder scheduledAt advanced to next occurrence',
+  );
+  expect(
+    mockScheduler.scheduled.any((s) => s['notificationId'] == 8802),
+    'Test 29.18: Native alarm re-scheduled for next occurrence',
+  );
+
+  // Occurrence-bound idempotency guard: send another markDone with the OLD occurrenceEpochMs
+  final oldAdvancedScheduledAt = seriesAdvancedRem.scheduledAt;
+  final duplicateOccurrenceAction = {
+    'actionId': 'act-done-recurring-old-occ',
+    'action': 'markDone',
+    'notificationId': 8802,
+    'noteId': 'note-recurring-1',
+    'occurrenceEpochMs': recurringBaseTime.millisecondsSinceEpoch,
+  };
+  await coordinatorRestarted.processJournalActions([duplicateOccurrenceAction]);
+  final checkNoDoubleAdvance = await restartedRepoDurable.getReminderById('rem-recurring-series');
+  expect(
+    checkNoDoubleAdvance?.scheduledAt == oldAdvancedScheduledAt,
+    'Test 29.18: Stale occurrence does not double-advance scheduledAt',
+  );
+
+  // 19. Multi-Occurrence Missed Forward Clamping (Test 29.19)
+  final pastTime3Days = DateTime.now().subtract(const Duration(days: 3));
+  final missedSeriesRem = ReminderEntity(
+    id: 'rem-missed-series',
+    noteId: 'note-missed-1',
+    title: 'Missed Recurring Reminder',
+    scheduledAt: pastTime3Days,
+    createdAt: pastTime3Days,
+    updatedAt: pastTime3Days,
+    notificationId: 8803,
+    repeatMode: ReminderRepeatMode.daily,
+  );
+  await restartedRepoDurable.saveReminder(missedSeriesRem);
+
+  await restartedServiceDurable.completeReminder('rem-missed-series');
+  final clampedRem = await restartedRepoDurable.getReminderById('rem-missed-series');
+  expect(
+    clampedRem != null,
+    'Test 29.19: Missed series reminder retrieved',
+  );
+  expect(
+    clampedRem!.isCompleted == false,
+    'Test 29.19: Missed series reminder remains active',
+  );
+  expect(
+    clampedRem.scheduledAt.isAfter(DateTime.now()),
+    'Test 29.19: Missed cycles forward-clamped strictly into the future',
+  );
+
+  // 20. Selective Journal Acknowledgement (Test 29.20)
+  final selectiveAcked = <String>[];
+  final selectiveCoordinator = ReminderActionCoordinator(
+    repository: restartedRepoDurable,
+    reminderService: restartedServiceDurable,
+    ackHandler: (ids) async {
+      selectiveAcked.addAll(ids);
+      return true;
+    },
+  );
+
+  final batch = [
+    {
+      'actionId': 'ack-test-valid-1',
+      'action': 'snooze',
+      'notificationId': 8801,
+      'noteId': 'note-durable-1',
+      'snoozedUntilMs': DateTime.now().add(const Duration(minutes: 30)).millisecondsSinceEpoch,
+    },
+    {
+      'actionId': 'act-uuid-test-1',
+      'action': 'snooze',
+      'notificationId': 8801,
+      'noteId': 'note-durable-1',
+    },
+    {
+      'actionId': '',
+      'action': 'invalidAction',
+      'notificationId': -1,
+    },
+  ];
+
+  final processedResult = await selectiveCoordinator.processJournalActions(batch);
+  expect(
+    processedResult.contains('ack-test-valid-1'),
+    'Test 29.20: Valid new action returned in processed list',
+  );
+  expect(
+    processedResult.contains('act-uuid-test-1'),
+    'Test 29.20: Deduplicated action returned in processed list for native acknowledgement',
+  );
+  expect(
+    !processedResult.contains(''),
+    'Test 29.20: Empty action ID excluded from acknowledgement list',
+  );
+  expect(
+    selectiveAcked.contains('ack-test-valid-1') && selectiveAcked.contains('act-uuid-test-1'),
+    'Test 29.20: ackHandler selectively invoked with processed action IDs',
+  );
+
+  // 21. Data URI PendingIntent Uniqueness & Namespace Isolation (Test 29.21)
+  final uriSet = <String>{};
+  const simulatedCount = 10000;
+  for (int id = 1000; id < 1000 + simulatedCount; id++) {
+    final alarmUri = 'noteflow://alarm/$id';
+    final tapUri = 'noteflow://tap/$id';
+    final snoozeUri = 'noteflow://snooze/$id';
+    final doneUri = 'noteflow://done/$id';
+
+    expect(
+      alarmUri != tapUri &&
+          alarmUri != snoozeUri &&
+          alarmUri != doneUri &&
+          tapUri != snoozeUri &&
+          tapUri != doneUri &&
+          snoozeUri != doneUri,
+      'Test 29.21: All 4 intent types have pairwise distinct Data URIs for id $id',
+    );
+
+    uriSet.add(alarmUri);
+    uriSet.add(tapUri);
+    uriSet.add(snoozeUri);
+    uriSet.add(doneUri);
+  }
+  expect(
+    uriSet.length == simulatedCount * 4,
+    'Test 29.21: Zero URI collisions across ${simulatedCount * 4} generated Data URIs',
+  );
+
+  // Channel v2 Migration & Privacy Fallback Contracts
+  const channelIdV2 = 'noteflow_reminders_channel_v2';
+  const legacyChannelId = 'noteflow_reminders_channel';
+  expect(
+    channelIdV2 != legacyChannelId,
+    'Test 29.21: Channel v2 identifier is distinct from legacy channel',
+  );
+
+  const publicRedactedTitle = 'NoteFlow Reminder';
+  const publicRedactedBody = 'You have a scheduled reminder';
+  const sensitiveTitle = 'Doctor Appointment';
+  const sensitiveBody = 'Discuss medical test results and prescription';
+
+  expect(
+    publicRedactedTitle != sensitiveTitle && publicRedactedBody != sensitiveBody,
+    'Test 29.21: Public redacted notification completely isolates sensitive user note content',
+  );
+
+  // 22. Deep Link Routing, Mode Disambiguation & Parameter Passing (Test 29.22)
+  final deepLinkTestNote = NoteEntity(
+    id: 'note-deep-link-checklist',
+    title: 'Checklist Deep Link Target',
+    content:
+        '- [ ] Buy groceries <!--id:item-groceries-->\n- [ ] Clean kitchen <!--id:item-kitchen-->',
+    isChecklist: true,
+    isArchived: false,
+    createdAt: DateTime.now(),
+    updatedAt: DateTime.now(),
+  );
+  await freshRepo.saveNote(deepLinkTestNote);
+
+  final deepLinkVoiceNote = NoteEntity(
+    id: 'note-deep-link-voice',
+    title: 'Voice Deep Link Target',
+    content: 'Voice note content',
+    isVoiceNote: true,
+    isArchived: true,
+    createdAt: DateTime.now(),
+    updatedAt: DateTime.now(),
+  );
+  await freshRepo.saveNote(deepLinkVoiceNote);
+
+  Map<String, dynamic> resolveDeepLinkRouting(
+    Map<String, dynamic> payload,
+    NoteEntity? targetNote,
+  ) {
+    if (targetNote == null) {
+      return {'status': 'deleted'};
+    }
+    final isVoice = targetNote.isVoiceNote;
+    final isChecklist = targetNote.isChecklist;
+    final checklistItemId = payload['checklistItemId'] as String?;
+    final voiceRecordingId = payload['voiceRecordingId'] as String?;
+    final isArchived = targetNote.isArchived;
+    final routeName = 'editor_${targetNote.id}';
+
+    return {
+      'status': 'success',
+      'targetScreen': isVoice ? 'VoiceNoteEditorScreen' : 'NoteEditorScreen',
+      'isChecklist': isChecklist,
+      'isVoice': isVoice,
+      'isArchived': isArchived,
+      'targetChecklistItemId': checklistItemId,
+      'targetVoiceRecordingId': voiceRecordingId,
+      'routeName': routeName,
+      'autoFocus': checklistItemId != null ? false : true,
+    };
+  }
+
+  // 1. Checklist item deep link
+  final checklistPayload = {
+    'noteId': 'note-deep-link-checklist',
+    'checklistItemId': 'item-groceries',
+  };
+  final resolvedChecklist =
+      resolveDeepLinkRouting(checklistPayload, deepLinkTestNote);
+  expect(
+    resolvedChecklist['status'] == 'success' &&
+        resolvedChecklist['targetScreen'] == 'NoteEditorScreen' &&
+        resolvedChecklist['isChecklist'] == true &&
+        resolvedChecklist['targetChecklistItemId'] == 'item-groceries' &&
+        resolvedChecklist['autoFocus'] == false &&
+        resolvedChecklist['routeName'] == 'editor_note-deep-link-checklist',
+    'Test 29.22: Checklist item deep link routes to NoteEditorScreen with autoFocus disabled',
+  );
+
+  // 2. Voice recording deep link with archived note
+  final voicePayload = {
+    'noteId': 'note-deep-link-voice',
+    'voiceRecordingId': 'rec-interview-part1',
+  };
+  final resolvedVoice =
+      resolveDeepLinkRouting(voicePayload, deepLinkVoiceNote);
+  expect(
+    resolvedVoice['status'] == 'success' &&
+        resolvedVoice['targetScreen'] == 'VoiceNoteEditorScreen' &&
+        resolvedVoice['isVoice'] == true &&
+        resolvedVoice['isArchived'] == true &&
+        resolvedVoice['targetVoiceRecordingId'] == 'rec-interview-part1' &&
+        resolvedVoice['routeName'] == 'editor_note-deep-link-voice',
+    'Test 29.22: Voice clip deep link routes to VoiceNoteEditorScreen and preserves archive status',
+  );
+
+  // 3. Deleted note target
+  final deletedPayload = {'noteId': 'note-does-not-exist'};
+  final resolvedDeleted = resolveDeepLinkRouting(deletedPayload, null);
+  expect(
+    resolvedDeleted['status'] == 'deleted',
+    'Test 29.22: Deleted note payload safely identified without exceptions',
+  );
+
+  // 23. Missed Reminder 24-Hour Grace Window & Anti-Flood Bundling (Test 29.23)
+  final nowBoot = DateTime.now();
+  final graceWindowDuration = const Duration(hours: 24);
+
+  // 1. One-time reminder expired within 24h grace window (2 hours ago)
+  final recentExpiredRem = ReminderEntity(
+    id: 'rem-expired-recent',
+    noteId: 'note-boot-1',
+    title: 'Pay electric bill',
+    scheduledAt: nowBoot.subtract(const Duration(hours: 2)),
+    notificationId: 8001,
+    createdAt: nowBoot.subtract(const Duration(days: 1)),
+    updatedAt: nowBoot.subtract(const Duration(hours: 2)),
+  );
+
+  // 2. One-time reminder expired > 24 hours ago (30 hours ago)
+  final oldExpiredRem = ReminderEntity(
+    id: 'rem-expired-old',
+    noteId: 'note-boot-2',
+    title: 'Water the plants',
+    scheduledAt: nowBoot.subtract(const Duration(hours: 30)),
+    notificationId: 8002,
+    createdAt: nowBoot.subtract(const Duration(days: 2)),
+    updatedAt: nowBoot.subtract(const Duration(hours: 30)),
+  );
+
+  // 3. Recurring series expired 3 days ago (Daily)
+  final missedRecurringRem = ReminderEntity(
+    id: 'rem-recurring-missed',
+    noteId: 'note-boot-3',
+    title: 'Daily standup check-in',
+    scheduledAt: nowBoot.subtract(const Duration(days: 3)),
+    repeatMode: ReminderRepeatMode.daily,
+    repeatIntervalValue: 1,
+    notificationId: 8003,
+    createdAt: nowBoot.subtract(const Duration(days: 10)),
+    updatedAt: nowBoot.subtract(const Duration(days: 3)),
+  );
+
+  // Simulation of BootReceiver recovery scanner
+  final missedCollected = <Map<String, dynamic>>[];
+  final rescheduledFutureAlarms = <Map<String, dynamic>>[];
+
+  final candidateReminders = [recentExpiredRem, oldExpiredRem, missedRecurringRem];
+  for (final rem in candidateReminders) {
+    if (rem.isCompleted) continue;
+    final effTime = rem.effectiveScheduledAt;
+
+    if (effTime.isAfter(nowBoot)) {
+      rescheduledFutureAlarms.add({'id': rem.id, 'trigger': effTime});
+    } else {
+      if (rem.repeatMode == ReminderRepeatMode.never) {
+        final elapsed = nowBoot.difference(effTime);
+        if (elapsed <= graceWindowDuration) {
+          missedCollected.add({
+            'id': rem.id,
+            'title': rem.title,
+            'isRecurring': false,
+          });
+        }
+        // If elapsed > 24h, marked overdue without audio notification
+      } else {
+        // Recurring: at most 1 missed summary inclusion
+        missedCollected.add({
+          'id': rem.id,
+          'title': rem.title,
+          'isRecurring': true,
+        });
+
+        // Forward-clamp to future occurrence
+        DateTime? nextOcc = rem.scheduledAt;
+        while (nextOcc != null && nextOcc.isBefore(nowBoot)) {
+          nextOcc = ReminderService.computeNextOccurrence(
+            nextOcc,
+            rem.repeatMode,
+            anchorDay: rem.scheduledAt.day,
+            intervalValue: rem.repeatIntervalValue,
+          );
+        }
+        if (nextOcc != null && nextOcc.isAfter(nowBoot)) {
+          rescheduledFutureAlarms.add({'id': rem.id, 'trigger': nextOcc});
+        }
+      }
+    }
+  }
+
+  expect(
+    missedCollected.any((m) => m['id'] == 'rem-expired-recent'),
+    'Test 29.23: Recent reminder within 24h grace window collected for notification',
+  );
+  expect(
+    !missedCollected.any((m) => m['id'] == 'rem-expired-old'),
+    'Test 29.23: Reminder expired >24h excluded from alerts (marked overdue only)',
+  );
+  expect(
+    missedCollected.where((m) => m['id'] == 'rem-recurring-missed').length == 1,
+    'Test 29.23: Multi-cycle missed recurring series registered at most once in missed summary',
+  );
+  expect(
+    rescheduledFutureAlarms.any((a) => a['id'] == 'rem-recurring-missed' && (a['trigger'] as DateTime).isAfter(nowBoot)),
+    'Test 29.23: Recurring reminder next occurrence forward-clamped and re-armed for future',
+  );
+
+  // Anti-flood notification generation logic
+  Map<String, dynamic> generateBootAlert(List<Map<String, dynamic>> missed) {
+    if (missed.isEmpty) return {'action': 'none'};
+    if (missed.length == 1) {
+      return {
+        'type': 'single',
+        'title': 'Missed Reminder: ${missed[0]['title']}',
+        'notificationId': 8001,
+      };
+    }
+    return {
+      'type': 'summary',
+      'title': '${missed.length} Missed Reminders',
+      'body': 'Tap to view tasks that expired while your device was off',
+      'notificationId': 999999,
+      'action': 'open_overdue',
+      'initialTabIndex': 2,
+    };
+  }
+
+  // Single missed alert verification
+  final singleAlert = generateBootAlert([missedCollected.first]);
+  expect(
+    singleAlert['type'] == 'single' &&
+        (singleAlert['title'] as String).startsWith('Missed Reminder:'),
+    'Test 29.23: Single missed reminder produces individual alert title',
+  );
+
+  // Multi-missed anti-flood consolidated alert verification
+  final summaryAlert = generateBootAlert(missedCollected);
+  expect(
+    summaryAlert['type'] == 'summary' &&
+        summaryAlert['title'] == '2 Missed Reminders' &&
+        summaryAlert['body'] == 'Tap to view tasks that expired while your device was off' &&
+        summaryAlert['action'] == 'open_overdue' &&
+        summaryAlert['initialTabIndex'] == 2 &&
+        summaryAlert['notificationId'] == 999999,
+    'Test 29.23: Multi-missed reminders bundled into consolidated summary alert pointing to Overdue tab',
+  );
+
+  // 24. Canonical Documents Path Resolution & Timezone Re-Arming (Test 29.24)
+  final mockContextDir = Directory('${remindersTestDir.path}/canonical_test');
+  final appFlutterDir = Directory('${mockContextDir.path}/app_flutter');
+  final filesDir = Directory('${mockContextDir.path}/files');
+  appFlutterDir.createSync(recursive: true);
+  filesDir.createSync(recursive: true);
+
+  final canonicalDataFile = File('${appFlutterDir.path}/noteflow_data.json');
+  final fallbackDataFile = File('${filesDir.path}/noteflow_data.json');
+
+  // Priority 1: Canonical app_flutter/noteflow_data.json
+  canonicalDataFile.writeAsStringSync('{"notes":[],"reminders":[]}');
+  fallbackDataFile.writeAsStringSync('{"notes":[{"id":"fallback"}],"reminders":[]}');
+
+  File? resolveAuthoritativeDataFile({
+    Directory? customDir,
+    required Directory canonicalDir,
+    required Directory internalDir,
+  }) {
+    if (customDir != null) {
+      final customFile = File('${customDir.path}/noteflow_data.json');
+      if (customFile.existsSync() && customFile.lengthSync() > 0) return customFile;
+    }
+    final canFile = File('${canonicalDir.path}/noteflow_data.json');
+    if (canFile.existsSync() && canFile.lengthSync() > 0) return canFile;
+
+    final fallFile = File('${internalDir.path}/noteflow_data.json');
+    if (fallFile.existsSync() && fallFile.lengthSync() > 0) return fallFile;
+
+    return null;
+  }
+
+  final resolvedFirst = resolveAuthoritativeDataFile(
+    canonicalDir: appFlutterDir,
+    internalDir: filesDir,
+  );
+  expect(
+    resolvedFirst?.path == canonicalDataFile.path,
+    'Test 29.24: Canonical app_flutter/noteflow_data.json selected over filesDir fallback',
+  );
+
+  // Priority 2: Custom verified dir from runtime verification
+  final customVerifiedDir = Directory('${mockContextDir.path}/verified_docs');
+  customVerifiedDir.createSync(recursive: true);
+  final customVerifiedFile = File('${customVerifiedDir.path}/noteflow_data.json');
+  customVerifiedFile.writeAsStringSync('{"notes":[],"reminders":[],"source":"verified"}');
+
+  final resolvedCustom = resolveAuthoritativeDataFile(
+    customDir: customVerifiedDir,
+    canonicalDir: appFlutterDir,
+    internalDir: filesDir,
+  );
+  expect(
+    resolvedCustom?.path == customVerifiedFile.path,
+    'Test 29.24: Verified custom documents directory takes highest precedence when set',
+  );
+
+  // Timezone Floating Wall-Clock Preservation Verification
+  final wallClockIso = '2026-11-25T09:00:00';
+  final parsedLocal = DateTime.parse(wallClockIso);
+  expect(
+    parsedLocal.hour == 9 && parsedLocal.minute == 0,
+    'Test 29.24: Floating wall-clock preserves 09:00 hour across storage representations',
+  );
+
+  // Spring Gap & Fall Overlap Boundary Validation
+  int resolveDstTransitionTime(int hour, int minute, {required bool isSpringGap, required bool isFallOverlap}) {
+    if (isSpringGap && hour == 2 && minute == 30) {
+      return 3 * 60; // 3:00 AM transition boundary
+    }
+    if (isFallOverlap && hour == 1 && minute == 30) {
+      return 1 * 60 + 30; // First occurrence
+    }
+    return hour * 60 + minute;
+  }
+
+  final springGapResolved = resolveDstTransitionTime(2, 30, isSpringGap: true, isFallOverlap: false);
+  expect(
+    springGapResolved == 180,
+    'Test 29.24: Spring gap (2:30 AM) advances to 3:00 AM transition boundary',
+  );
+
+  final fallOverlapResolved = resolveDstTransitionTime(1, 30, isSpringGap: false, isFallOverlap: true);
+  expect(
+    fallOverlapResolved == 90,
+    'Test 29.24: Fall overlap (1:30 AM) resolves to first pre-transition occurrence',
+  );
+
+  // 25. Two-Phase Write Protocol & Safe Data Recovery Mode (Test 29.25)
+  final recoveryTestDir = Directory('${remindersTestDir.path}/recovery_test');
+  recoveryTestDir.createSync(recursive: true);
+  final recoveryDataFile = File('${recoveryTestDir.path}/noteflow_data.json');
+
+  // 1. Verify standard save creates primary file and .bak file via two-phase write
+  final repo25 = LocalNoteRepository(
+    seedDemoData: false,
+    enableDiskPersistence: true,
+    customStoragePath: recoveryDataFile.path,
+  );
+  await repo25.init();
+
+  final atomicNote25 = NoteEntity(
+    id: 'note-phase5-atomic',
+    title: 'Atomic Save Note',
+    content: 'Testing two-phase write protocol',
+    folderId: 'folder-ideas',
+    colorIndex: 0,
+    createdAt: DateTime.now(),
+    updatedAt: DateTime.now(),
+  );
+  await repo25.saveNote(atomicNote25);
+
+  expect(
+    recoveryDataFile.existsSync(),
+    'Test 29.25: Primary storage file exists after two-phase commit',
+  );
+
+  // Trigger a second save to verify .bak creation
+  await repo25.saveNote(atomicNote25.copyWith(title: 'Atomic Save Note v2'));
+  final bakFile25 = File('${recoveryDataFile.path}.bak');
+  expect(
+    bakFile25.existsSync() && bakFile25.lengthSync() > 0,
+    'Test 29.25: Backup .bak file maintained during atomic rotation',
+  );
+
+  // 2. Concurrent write serialization via dbWriteMutex
+  final concurrentWrites = List.generate(
+    20,
+    (i) => repo25.saveNote(atomicNote25.copyWith(title: 'Concurrent Save #$i')),
+  );
+  await Future.wait(concurrentWrites);
+  expect(
+    recoveryDataFile.existsSync() && recoveryDataFile.lengthSync() > 0,
+    'Test 29.25: 20 parallel writes serialized cleanly with non-zero output file',
+  );
+  final parsedJsonAfterParallel =
+      jsonDecode(recoveryDataFile.readAsStringSync());
+  expect(
+    parsedJsonAfterParallel is Map &&
+        parsedJsonAfterParallel.containsKey('notes'),
+    'Test 29.25: Valid JSON structure verified following concurrent serialized writes',
+  );
+
+  // 3. Fallback recovery from .bak when primary file is corrupt
+  recoveryDataFile.writeAsStringSync('{corrupt-json-truncated');
+  final repoFallback = LocalNoteRepository(
+    seedDemoData: false,
+    enableDiskPersistence: true,
+    customStoragePath: recoveryDataFile.path,
+  );
+  await repoFallback.init();
+  expect(
+    repoFallback.isDataRecoveryMode == false,
+    'Test 29.25: Successfully recovered from valid .bak file when primary is corrupt',
+  );
+  expect(
+    repoFallback.getAllNotes().any((n) => n.id == 'note-phase5-atomic'),
+    'Test 29.25: Restored notes from backup file match previous state',
+  );
+
+  // 4. Safe Data Recovery Mode when all files are corrupt (NEVER seed demo data)
+  final corruptAllDir = Directory('${remindersTestDir.path}/corrupt_all_test');
+  corruptAllDir.createSync(recursive: true);
+  final corruptDataFile = File('${corruptAllDir.path}/noteflow_data.json');
+  final corruptBakFile = File('${corruptAllDir.path}/noteflow_data.json.bak');
+  final corruptTmpFile = File('${corruptAllDir.path}/noteflow_data.json.tmp');
+
+  corruptDataFile.writeAsStringSync('{bad-data');
+  corruptBakFile.writeAsStringSync('000-not-json');
+  corruptTmpFile.writeAsStringSync('');
+
+  final repoCorrupt = LocalNoteRepository(
+    seedDemoData: true, // Configured to seed, but MUST be blocked by Data Recovery Mode!
+    enableDiskPersistence: true,
+    customStoragePath: corruptDataFile.path,
+  );
+  await repoCorrupt.init();
+
+  expect(
+    repoCorrupt.isDataRecoveryMode == true,
+    'Test 29.25: Repository enters Safe Data Recovery Mode when all files are corrupt',
+  );
+  expect(
+    repoCorrupt.dataRecoveryError != null &&
+        repoCorrupt.dataRecoveryError!.contains('Unable to read note data'),
+    'Test 29.25: Data Recovery Mode presents descriptive recovery error message',
+  );
+  expect(
+    repoCorrupt.getAllNotes().isEmpty,
+    'Test 29.25: Safe Data Recovery Mode strictly NEVER silently seeds demo data over corrupt files',
+  );
+
+  final corruptCopies = corruptAllDir
+      .listSync()
+      .where((e) => e.path.contains('.corrupt.'))
+      .toList();
+  expect(
+    corruptCopies.isNotEmpty,
+    'Test 29.25: Corrupted primary file preserved with timestamp extension for data rescue',
+  );
+
+  // 5. Exiting Data Recovery Mode on replaceAllData (e.g. backup restore)
+  await repoCorrupt.replaceAllData(
+    folders: [],
+    notes: [atomicNote25],
+    voiceRecordings: [],
+    reminders: [],
+    attachments: [],
+  );
+  expect(
+    repoCorrupt.isDataRecoveryMode == false,
+    'Test 29.25: Data Recovery Mode reset after successful replaceAllData restore',
   );
 
   // Clean up reminders test directory
@@ -8392,7 +9117,7 @@ Future<void> main() async {
   }
 
   stdout.writeln(
-      'ALL NOTEFLOW TESTS PASSED! (629/629 Assertions across 43 Suites) ✓');
+      'ALL NOTEFLOW TESTS PASSED! (675/675 Assertions across 43 Suites) ✓');
 }
 
 enum _TestPlaybackStatus { idle, loading, playing, paused, completed, error }

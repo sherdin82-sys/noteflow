@@ -26,12 +26,14 @@ class VoiceNoteEditorScreen extends ConsumerStatefulWidget {
   final String? noteId;
   final NoteEntity? initialNote;
   final String? initialFolderId;
+  final String? targetVoiceRecordingId;
 
   const VoiceNoteEditorScreen({
     super.key,
     this.noteId,
     this.initialNote,
     this.initialFolderId,
+    this.targetVoiceRecordingId,
   });
 
   @override
@@ -51,6 +53,12 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
   bool _isNotePersisted = false;
   bool _isImportingAttachments = false;
   String _saveStatus = 'Saved locally';
+
+  String? _highlightedRecordingId;
+  final Map<String, GlobalKey> _recordingKeys = {};
+
+  GlobalKey _getRecordingKey(String id) =>
+      _recordingKeys.putIfAbsent(id, () => GlobalKey());
 
   @override
   void initState() {
@@ -86,6 +94,39 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
 
     _titleController =
         TextEditingController(text: _isLoading ? '' : _currentNote.title);
+
+    if (widget.targetVoiceRecordingId != null &&
+        widget.targetVoiceRecordingId!.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _highlightAndScrollToRecording(widget.targetVoiceRecordingId!);
+      });
+    }
+  }
+
+  void _highlightAndScrollToRecording(String recordingId) {
+    if (!mounted) return;
+    setState(() {
+      _highlightedRecordingId = recordingId;
+    });
+
+    final key = _recordingKeys[recordingId];
+    if (key?.currentContext != null) {
+      Scrollable.ensureVisible(
+        key!.currentContext!,
+        duration: const Duration(milliseconds: 300),
+        alignment: 0.3,
+      );
+    }
+
+    Timer(const Duration(milliseconds: 1200), () {
+      if (mounted) {
+        setState(() {
+          if (_highlightedRecordingId == recordingId) {
+            _highlightedRecordingId = null;
+          }
+        });
+      }
+    });
   }
 
   Future<void> _initExistingNote() async {
@@ -834,6 +875,50 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
 
         body: Column(
           children: [
+            if (_currentNote.isArchived)
+              Container(
+                width: double.infinity,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                color: Colors.amber.withAlpha(35),
+                child: Row(
+                  children: [
+                    const Icon(Icons.archive_outlined,
+                        size: 20, color: Colors.amber),
+                    const SizedBox(width: 10),
+                    const Expanded(
+                      child: Text(
+                        'This note is in the Archive',
+                        style: TextStyle(
+                            fontWeight: FontWeight.w600, fontSize: 13),
+                      ),
+                    ),
+                    TextButton(
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                      ),
+                      onPressed: () async {
+                        final unarchived = _currentNote.copyWith(
+                          isArchived: false,
+                          updatedAt: DateTime.now(),
+                        );
+                        _currentNote = unarchived;
+                        await ref
+                            .read(noteRepositoryProvider)
+                            .saveNote(unarchived);
+                        if (mounted) {
+                          setState(() {});
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Note unarchived')),
+                          );
+                        }
+                      },
+                      child: const Text('Unarchive'),
+                    ),
+                  ],
+                ),
+              ),
             // Top Section: Title & Mode Switcher
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -1076,33 +1161,57 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
                     },
                     itemBuilder: (context, index) {
                       final recording = recordings[index];
-                      return VoiceRecordingTile(
+                      final isHighlighted =
+                          _highlightedRecordingId == recording.id;
+
+                      return Padding(
                         key: ValueKey(recording.id),
-                        recording: recording,
-                        isChecklistMode: isChecklistMode,
-                        onToggleComplete: () {
-                          ref
-                              .read(noteRepositoryProvider)
-                              .toggleVoiceRecordingCompletion(recording.id);
-                        },
-                        onRename: (newTitle) {
-                          ref.read(noteRepositoryProvider).saveVoiceRecording(
-                                recording.copyWith(title: newTitle),
-                              );
-                        },
-                        onDelete: () {
-                          ref
-                              .read(noteRepositoryProvider)
-                              .deleteVoiceRecording(recording.id);
-                        },
-                        dragHandle: ReorderableDragStartListener(
-                          index: index,
-                          child: Padding(
-                            padding: const EdgeInsets.all(4),
-                            child: Icon(
-                              Icons.drag_indicator_rounded,
-                              size: 18,
-                              color: secondaryTextColor.withAlpha(120),
+                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        child: AnimatedContainer(
+                          key: _getRecordingKey(recording.id),
+                          duration: const Duration(milliseconds: 300),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: isHighlighted
+                                  ? AppColors.accent
+                                  : Colors.transparent,
+                              width: 2,
+                            ),
+                            color: isHighlighted
+                                ? AppColors.accent.withAlpha(20)
+                                : null,
+                          ),
+                          child: VoiceRecordingTile(
+                            recording: recording,
+                            isChecklistMode: isChecklistMode,
+                            onToggleComplete: () {
+                              ref
+                                  .read(noteRepositoryProvider)
+                                  .toggleVoiceRecordingCompletion(recording.id);
+                            },
+                            onRename: (newTitle) {
+                              ref
+                                  .read(noteRepositoryProvider)
+                                  .saveVoiceRecording(
+                                    recording.copyWith(title: newTitle),
+                                  );
+                            },
+                            onDelete: () {
+                              ref
+                                  .read(noteRepositoryProvider)
+                                  .deleteVoiceRecording(recording.id);
+                            },
+                            dragHandle: ReorderableDragStartListener(
+                              index: index,
+                              child: Padding(
+                                padding: const EdgeInsets.all(4),
+                                child: Icon(
+                                  Icons.drag_indicator_rounded,
+                                  size: 18,
+                                  color: secondaryTextColor.withAlpha(120),
+                                ),
+                              ),
                             ),
                           ),
                         ),

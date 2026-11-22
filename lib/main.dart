@@ -10,27 +10,30 @@ import 'features/home/presentation/home_screen.dart';
 import 'core/database/database_provider.dart';
 import 'core/database/local_note_repository.dart';
 import 'features/reminders/services/reminder_native_bridge.dart';
+import 'features/reminders/services/reminder_service.dart';
+import 'features/reminders/services/reminder_action_coordinator.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  final docsDir = await getApplicationDocumentsDirectory();
+  try {
+    await ReminderNativeBridge.verifyDocumentsPath(docsDir.path);
+  } catch (_) {}
+
   final repo = LocalNoteRepository(
     reminderScheduler: const NativeReminderScheduler(),
-    directoryProvider: () async {
-      final dir = await getApplicationDocumentsDirectory();
-      return dir.path;
-    },
+    directoryProvider: () async => docsDir.path,
   );
   await repo.init();
 
   try {
-    ReminderNativeBridge.initialize();
-    final pendingActions = await ReminderNativeBridge.getPendingJournalActions();
-    if (pendingActions.isNotEmpty) {
-      await repo.applyJournalActions(pendingActions);
-    }
-    ReminderNativeBridge.onActionReceived.listen((a) {
-      repo.applyJournalActions([a]);
-    });
+    final reminderService = ReminderService(repository: repo);
+    final coordinator = ReminderActionCoordinator(
+      repository: repo,
+      reminderService: reminderService,
+      bridge: const ReminderNativeJournalBridge(),
+    );
+    await coordinator.initializeAndDrain();
   } catch (_) {}
 
   runApp(

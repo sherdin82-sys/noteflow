@@ -191,13 +191,23 @@ class ReminderService {
       );
       await repository.saveReminder(completed);
     } else {
-      // Advance to next recurring cycle
-      final nextDate = computeNextOccurrence(
+      // Advance to next recurring cycle with forward-clamping catch-up
+      DateTime? nextDate = computeNextOccurrence(
         rem.scheduledAt,
         rem.repeatMode,
         anchorDay: rem.scheduledAt.day,
         intervalValue: rem.repeatIntervalValue,
       );
+
+      final now = DateTime.now();
+      while (nextDate != null && nextDate.isBefore(now)) {
+        nextDate = computeNextOccurrence(
+          nextDate,
+          rem.repeatMode,
+          anchorDay: rem.scheduledAt.day,
+          intervalValue: rem.repeatIntervalValue,
+        );
+      }
 
       if (nextDate != null) {
         final recurringNext = rem.copyWith(

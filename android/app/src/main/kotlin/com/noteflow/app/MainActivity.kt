@@ -83,7 +83,7 @@ class MainActivity : FlutterFragmentActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, NATIVE_CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "getAppVersion" -> {
-                    result.success("1.7.0")
+                    result.success("1.8.0")
                 }
                 "getDeviceInfo" -> {
                     val info = mapOf(
@@ -208,15 +208,56 @@ class MainActivity : FlutterFragmentActivity() {
                         }
                     }
 
-                    // Clear journal after reading
-                    prefs.edit().clear().apply()
+                    // Return pending actions without blind clearing (two-phase commit with ackPendingJournalActions)
                     result.success(actionsList)
+                }
+
+                "ackPendingJournalActions" -> {
+                    val actionIds = call.argument<List<String>>("actionIds") ?: emptyList()
+                    val prefs = getSharedPreferences(NotificationActionReceiver.PREFS_NAME, Context.MODE_PRIVATE)
+                    val editor = prefs.edit()
+                    for (actionId in actionIds) {
+                        editor.remove("action_$actionId")
+                        editor.remove(actionId)
+                    }
+                    editor.apply()
+                    result.success(true)
                 }
 
                 "getInitialNotificationPayload" -> {
                     val payload = initialNotificationPayload
                     initialNotificationPayload = null
                     result.success(payload)
+                }
+
+                "areLockscreenPreviewsEnabled" -> {
+                    val prefs = getSharedPreferences(com.noteflow.app.reminders.ReminderManager.PREFS_SETTINGS_NAME, Context.MODE_PRIVATE)
+                    val enabled = prefs.getBoolean(com.noteflow.app.reminders.ReminderManager.KEY_SHOW_LOCKSCREEN_PREVIEWS, false)
+                    result.success(enabled)
+                }
+
+                "setLockscreenPreviewsEnabled" -> {
+                    val enabled = call.argument<Boolean>("enabled") ?: false
+                    val prefs = getSharedPreferences(com.noteflow.app.reminders.ReminderManager.PREFS_SETTINGS_NAME, Context.MODE_PRIVATE)
+                    prefs.edit().putBoolean(com.noteflow.app.reminders.ReminderManager.KEY_SHOW_LOCKSCREEN_PREVIEWS, enabled).apply()
+                    result.success(true)
+                }
+
+                "verifyDocumentsPath" -> {
+                    val dartPath = call.argument<String>("path") ?: ""
+                    val canonicalDir = getDir("app_flutter", Context.MODE_PRIVATE)
+                    val canonicalPath = canonicalDir.absolutePath
+                    val matches = dartPath == canonicalPath
+                    if (!matches) {
+                        android.util.Log.w("NoteFlow", "Documents path discrepancy: Dart=$dartPath, Kotlin=$canonicalPath")
+                        if (dartPath.isNotBlank()) {
+                            val dir = File(dartPath)
+                            if (dir.exists() && dir.isDirectory) {
+                                com.noteflow.app.reminders.BootReceiver.customDocumentsDir = dir
+                            }
+                        }
+                    }
+                    result.success(matches)
                 }
 
                 else -> {
@@ -368,6 +409,18 @@ class MainActivity : FlutterFragmentActivity() {
 
     private fun checkNotificationIntent(intent: Intent?) {
         if (intent == null) return
+        val actionType = intent.getStringExtra(ReminderManager.EXTRA_ACTION_TYPE)
+        val initialTabIndex = intent.getIntExtra("initialTabIndex", -1)
+        if (actionType == "open_overdue" || intent.action == ReminderManager.ACTION_OPEN_OVERDUE) {
+            val payload = mapOf(
+                "action" to "open_overdue",
+                "initialTabIndex" to if (initialTabIndex >= 0) initialTabIndex else 2
+            )
+            initialNotificationPayload = payload
+            remindersChannel?.invokeMethod("onNotificationTapped", payload)
+            return
+        }
+
         val noteId = intent.getStringExtra(ReminderManager.EXTRA_NOTE_ID) ?: return
         val checklistItemId = intent.getStringExtra(ReminderManager.EXTRA_CHECKLIST_ITEM_ID)
         val voiceRecordingId = intent.getStringExtra(ReminderManager.EXTRA_VOICE_RECORDING_ID)

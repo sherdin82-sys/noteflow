@@ -33,6 +33,7 @@ class NoteEditorScreen extends ConsumerStatefulWidget {
   final String? initialFolderId;
   final bool isChecklist;
   final bool isVoiceNote;
+  final String? targetChecklistItemId;
 
   const NoteEditorScreen({
     super.key,
@@ -41,6 +42,7 @@ class NoteEditorScreen extends ConsumerStatefulWidget {
     this.initialFolderId,
     this.isChecklist = false,
     this.isVoiceNote = false,
+    this.targetChecklistItemId,
   });
 
   @override
@@ -904,6 +906,50 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
         ),
         body: Column(
           children: [
+            if (_currentNote.isArchived)
+              Container(
+                width: double.infinity,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                color: Colors.amber.withAlpha(35),
+                child: Row(
+                  children: [
+                    const Icon(Icons.archive_outlined,
+                        size: 20, color: Colors.amber),
+                    const SizedBox(width: 10),
+                    const Expanded(
+                      child: Text(
+                        'This note is in the Archive',
+                        style: TextStyle(
+                            fontWeight: FontWeight.w600, fontSize: 13),
+                      ),
+                    ),
+                    TextButton(
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                      ),
+                      onPressed: () async {
+                        final unarchived = _currentNote.copyWith(
+                          isArchived: false,
+                          updatedAt: DateTime.now(),
+                        );
+                        _currentNote = unarchived;
+                        await ref
+                            .read(noteRepositoryProvider)
+                            .saveNote(unarchived);
+                        if (mounted) {
+                          setState(() {});
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Note unarchived')),
+                          );
+                        }
+                      },
+                      child: const Text('Unarchive'),
+                    ),
+                  ],
+                ),
+              ),
             Expanded(
               child: ListView(
                 padding: const EdgeInsets.symmetric(
@@ -1071,9 +1117,11 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                   if (_currentNote.isChecklist)
                     ChecklistView(
                       noteId: _currentNote.id,
+                      targetChecklistItemId: widget.targetChecklistItemId,
                       rawContent:
                           NoteHelper.formatForEditor(_currentNote.content),
-                      autoFocus: !_isNotePersisted &&
+                      autoFocus: widget.targetChecklistItemId == null &&
+                          !_isNotePersisted &&
                           (_currentNote.title.isEmpty &&
                               NoteHelper.extractPlainText(_currentNote.content)
                                   .isEmpty),

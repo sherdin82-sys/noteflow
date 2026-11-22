@@ -8,12 +8,14 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import com.noteflow.app.MainActivity
 
 object ReminderManager {
-    const val CHANNEL_ID = "noteflow_reminders_channel"
+    const val CHANNEL_ID = "noteflow_reminders_channel_v2"
+    const val LEGACY_CHANNEL_ID = "noteflow_reminders_channel"
     const val CHANNEL_NAME = "NoteFlow Reminders"
     const val CHANNEL_DESC = "Notifications for NoteFlow note, checklist, and audio reminders"
 
@@ -24,13 +26,32 @@ object ReminderManager {
     const val EXTRA_CHECKLIST_ITEM_ID = "extra_checklist_item_id"
     const val EXTRA_VOICE_RECORDING_ID = "extra_voice_recording_id"
     const val EXTRA_ACTION_TYPE = "extra_action_type"
+    const val EXTRA_OCCURRENCE_EPOCH_MS = "extra_occurrence_epoch_ms"
 
+    const val ACTION_TRIGGER_ALARM = "com.noteflow.app.TRIGGER_ALARM"
+    const val ACTION_OPEN_REMINDER = "com.noteflow.app.OPEN_REMINDER"
+    const val ACTION_OPEN_OVERDUE = "com.noteflow.app.OPEN_OVERDUE"
     const val ACTION_SNOOZE = "com.noteflow.app.ACTION_SNOOZE"
     const val ACTION_MARK_DONE = "com.noteflow.app.ACTION_MARK_DONE"
+
+    const val MISSED_SUMMARY_NOTIFICATION_ID = 999999
+
+    const val PREFS_SETTINGS_NAME = "noteflow_reminder_settings"
+    const val KEY_SHOW_LOCKSCREEN_PREVIEWS = "show_lockscreen_previews"
 
     fun createNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+            // 1. Delete legacy public channel if present
+            try {
+                val legacy = notificationManager.getNotificationChannel(LEGACY_CHANNEL_ID)
+                if (legacy != null) {
+                    notificationManager.deleteNotificationChannel(LEGACY_CHANNEL_ID)
+                }
+            } catch (_: Exception) {}
+
+            // 2. Create v2 channel with VISIBILITY_PRIVATE
             val existing = notificationManager.getNotificationChannel(CHANNEL_ID)
             if (existing == null) {
                 val channel = NotificationChannel(
@@ -43,7 +64,7 @@ object ReminderManager {
                     lightColor = Color.parseColor("#2563EB")
                     enableVibration(true)
                     vibrationPattern = longArrayOf(0, 250, 200, 250)
-                    lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                    lockscreenVisibility = Notification.VISIBILITY_PRIVATE
                 }
                 notificationManager.createNotificationChannel(channel)
             }
@@ -74,12 +95,15 @@ object ReminderManager {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
 
         val intent = Intent(context, AlarmReceiver::class.java).apply {
+            action = ACTION_TRIGGER_ALARM
+            data = Uri.parse("noteflow://alarm/$notificationId")
             putExtra(EXTRA_NOTIFICATION_ID, notificationId)
             putExtra(EXTRA_TITLE, title)
             putExtra(EXTRA_BODY, body)
             putExtra(EXTRA_NOTE_ID, noteId)
             putExtra(EXTRA_CHECKLIST_ITEM_ID, checklistItemId)
             putExtra(EXTRA_VOICE_RECORDING_ID, voiceRecordingId)
+            putExtra(EXTRA_OCCURRENCE_EPOCH_MS, triggerEpochMs)
         }
 
         val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -136,7 +160,10 @@ object ReminderManager {
 
     fun cancelAlarm(context: Context, notificationId: Int) {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        val intent = Intent(context, AlarmReceiver::class.java)
+        val intent = Intent(context, AlarmReceiver::class.java).apply {
+            action = ACTION_TRIGGER_ALARM
+            data = Uri.parse("noteflow://alarm/$notificationId")
+        }
 
         val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
@@ -166,23 +193,27 @@ object ReminderManager {
         body: String,
         noteId: String,
         checklistItemId: String?,
-        voiceRecordingId: String?
+        voiceRecordingId: String?,
+        occurrenceEpochMs: Long = -1L
     ): Notification {
         createNotificationChannel(context)
-
-        // Content Intent: Open MainActivity with deep link payload
-        val openIntent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            putExtra(EXTRA_NOTE_ID, noteId)
-            putExtra(EXTRA_CHECKLIST_ITEM_ID, checklistItemId)
-            putExtra(EXTRA_VOICE_RECORDING_ID, voiceRecordingId)
-            putExtra(EXTRA_NOTIFICATION_ID, notificationId)
-        }
 
         val piFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         } else {
             PendingIntent.FLAG_UPDATE_CURRENT
+        }
+
+        // Content Intent: Open MainActivity with deep link payload
+        val openIntent = Intent(context, MainActivity::class.java).apply {
+            action = ACTION_OPEN_REMINDER
+            data = Uri.parse("noteflow://tap/$notificationId")
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra(EXTRA_NOTE_ID, noteId)
+            putExtra(EXTRA_CHECKLIST_ITEM_ID, checklistItemId)
+            putExtra(EXTRA_VOICE_RECORDING_ID, voiceRecordingId)
+            putExtra(EXTRA_NOTIFICATION_ID, notificationId)
+            putExtra(EXTRA_OCCURRENCE_EPOCH_MS, occurrenceEpochMs)
         }
 
         val contentPendingIntent = PendingIntent.getActivity(
@@ -195,16 +226,18 @@ object ReminderManager {
         // Action 1: Snooze 15 minutes
         val snoozeIntent = Intent(context, NotificationActionReceiver::class.java).apply {
             action = ACTION_SNOOZE
+            data = Uri.parse("noteflow://snooze/$notificationId")
             putExtra(EXTRA_NOTIFICATION_ID, notificationId)
             putExtra(EXTRA_TITLE, title)
             putExtra(EXTRA_BODY, body)
             putExtra(EXTRA_NOTE_ID, noteId)
             putExtra(EXTRA_CHECKLIST_ITEM_ID, checklistItemId)
             putExtra(EXTRA_VOICE_RECORDING_ID, voiceRecordingId)
+            putExtra(EXTRA_OCCURRENCE_EPOCH_MS, occurrenceEpochMs)
         }
         val snoozePendingIntent = PendingIntent.getBroadcast(
             context,
-            notificationId * 10 + 1,
+            notificationId,
             snoozeIntent,
             piFlags
         )
@@ -212,14 +245,16 @@ object ReminderManager {
         // Action 2: Mark Done
         val doneIntent = Intent(context, NotificationActionReceiver::class.java).apply {
             action = ACTION_MARK_DONE
+            data = Uri.parse("noteflow://done/$notificationId")
             putExtra(EXTRA_NOTIFICATION_ID, notificationId)
             putExtra(EXTRA_NOTE_ID, noteId)
             putExtra(EXTRA_CHECKLIST_ITEM_ID, checklistItemId)
             putExtra(EXTRA_VOICE_RECORDING_ID, voiceRecordingId)
+            putExtra(EXTRA_OCCURRENCE_EPOCH_MS, occurrenceEpochMs)
         }
         val donePendingIntent = PendingIntent.getBroadcast(
             context,
-            notificationId * 10 + 2,
+            notificationId,
             doneIntent,
             piFlags
         )
@@ -230,18 +265,94 @@ object ReminderManager {
             context.packageName
         ).let { if (it != 0) it else android.R.drawable.ic_lock_idle_alarm }
 
+        val prefs = context.getSharedPreferences(PREFS_SETTINGS_NAME, Context.MODE_PRIVATE)
+        val showPreview = prefs.getBoolean(KEY_SHOW_LOCKSCREEN_PREVIEWS, false)
+
+        // Public Redacted Notification (Shown on secure lock screen)
+        val publicNotification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(smallIconRes)
+            .setContentTitle("NoteFlow Reminder")
+            .setContentText("You have a scheduled reminder")
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setColor(Color.parseColor("#2563EB"))
+            .build()
+
         return NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(smallIconRes)
-            .setContentTitle(if (title.isNotEmpty()) title else "Note Reminder")
-            .setContentText(body)
+            .setContentTitle(if (showPreview || title.isNotEmpty()) (if (title.isNotEmpty()) title else "Note Reminder") else "NoteFlow Reminder")
+            .setContentText(if (showPreview || body.isNotEmpty()) body else "You have a scheduled reminder")
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setVisibility(if (showPreview) NotificationCompat.VISIBILITY_PUBLIC else NotificationCompat.VISIBILITY_PRIVATE)
+            .setPublicVersion(publicNotification)
             .setAutoCancel(true)
             .setColor(Color.parseColor("#2563EB"))
             .setContentIntent(contentPendingIntent)
             .addAction(android.R.drawable.ic_popup_sync, "Snooze 15m", snoozePendingIntent)
             .addAction(android.R.drawable.checkbox_on_background, "Mark Done", donePendingIntent)
+            .build()
+    }
+
+    fun buildMissedSummaryNotification(
+        context: Context,
+        count: Int
+    ): Notification {
+        createNotificationChannel(context)
+
+        val piFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        } else {
+            PendingIntent.FLAG_UPDATE_CURRENT
+        }
+
+        val openIntent = Intent(context, MainActivity::class.java).apply {
+            action = ACTION_OPEN_OVERDUE
+            data = Uri.parse("noteflow://overdue_reminders")
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra(EXTRA_ACTION_TYPE, "open_overdue")
+            putExtra("initialTabIndex", 2)
+        }
+
+        val contentPendingIntent = PendingIntent.getActivity(
+            context,
+            MISSED_SUMMARY_NOTIFICATION_ID,
+            openIntent,
+            piFlags
+        )
+
+        val smallIconRes = context.resources.getIdentifier(
+            "ic_launcher_foreground",
+            "drawable",
+            context.packageName
+        ).let { if (it != 0) it else android.R.drawable.ic_lock_idle_alarm }
+
+        val prefs = context.getSharedPreferences(PREFS_SETTINGS_NAME, Context.MODE_PRIVATE)
+        val showPreview = prefs.getBoolean(KEY_SHOW_LOCKSCREEN_PREVIEWS, false)
+
+        val title = "$count Missed Reminders"
+        val body = "Tap to view tasks that expired while your device was off"
+
+        val publicNotification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(smallIconRes)
+            .setContentTitle("NoteFlow Reminders")
+            .setContentText("You have missed reminders")
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setColor(Color.parseColor("#2563EB"))
+            .build()
+
+        return NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(smallIconRes)
+            .setContentTitle(if (showPreview) title else "NoteFlow Reminders")
+            .setContentText(if (showPreview) body else "You have missed reminders")
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setVisibility(if (showPreview) NotificationCompat.VISIBILITY_PUBLIC else NotificationCompat.VISIBILITY_PRIVATE)
+            .setPublicVersion(publicNotification)
+            .setAutoCancel(true)
+            .setColor(Color.parseColor("#2563EB"))
+            .setContentIntent(contentPendingIntent)
             .build()
     }
 }

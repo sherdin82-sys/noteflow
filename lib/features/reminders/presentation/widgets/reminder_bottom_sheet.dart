@@ -57,12 +57,17 @@ class _ReminderBottomSheetState extends State<ReminderBottomSheet> {
   late DateTime _selectedDateTime;
   late ReminderRepeatMode _repeatMode;
   late TextEditingController _titleController;
+  late final AppLifecycleListener _lifecycleListener;
   bool _canExactAlarm = true;
   bool _notificationsEnabled = true;
 
   @override
   void initState() {
     super.initState();
+    _lifecycleListener = AppLifecycleListener(
+      onResume: () => _checkPermissions(),
+    );
+
     if (widget.existingReminder != null) {
       _selectedDateTime = widget.existingReminder!.effectiveScheduledAt;
       _repeatMode = widget.existingReminder!.repeatMode;
@@ -82,6 +87,7 @@ class _ReminderBottomSheetState extends State<ReminderBottomSheet> {
 
   @override
   void dispose() {
+    _lifecycleListener.dispose();
     _titleController.dispose();
     super.dispose();
   }

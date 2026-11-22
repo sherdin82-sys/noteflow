@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
@@ -37,6 +38,7 @@ class ChecklistView extends StatefulWidget {
   final ValueChanged<String> onContentChanged;
   final bool autoFocus;
   final String? noteId;
+  final String? targetChecklistItemId;
 
   const ChecklistView({
     super.key,
@@ -44,6 +46,7 @@ class ChecklistView extends StatefulWidget {
     required this.onContentChanged,
     this.autoFocus = false,
     this.noteId,
+    this.targetChecklistItemId,
   });
 
   @override
@@ -54,19 +57,56 @@ class _ChecklistViewState extends State<ChecklistView> {
   final List<ChecklistItem> _items = [];
   bool _isInternalChange = false;
   String _lastSerialized = '';
+  String? _highlightedItemId;
+  final Map<String, GlobalKey> _itemKeys = {};
+
+  GlobalKey _getItemKey(String id) =>
+      _itemKeys.putIfAbsent(id, () => GlobalKey());
 
   @override
   void initState() {
     super.initState();
     _parseRawContent(widget.rawContent);
-    if (widget.autoFocus) {
+    if (widget.targetChecklistItemId != null &&
+        widget.targetChecklistItemId!.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _highlightAndScrollToItem(widget.targetChecklistItemId!);
+      });
+    } else if (widget.autoFocus) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && _items.isNotEmpty) {
           _items.first.focusNode.requestFocus();
-          _items.first.controller.selection = const TextSelection.collapsed(offset: 0);
+          _items.first.controller.selection =
+              const TextSelection.collapsed(offset: 0);
         }
       });
     }
+  }
+
+  void _highlightAndScrollToItem(String itemId) {
+    if (!mounted) return;
+    setState(() {
+      _highlightedItemId = itemId;
+    });
+
+    final key = _itemKeys[itemId];
+    if (key?.currentContext != null) {
+      Scrollable.ensureVisible(
+        key!.currentContext!,
+        duration: const Duration(milliseconds: 300),
+        alignment: 0.3,
+      );
+    }
+
+    Timer(const Duration(milliseconds: 1200), () {
+      if (mounted) {
+        setState(() {
+          if (_highlightedItemId == itemId) {
+            _highlightedItemId = null;
+          }
+        });
+      }
+    });
   }
 
   @override
@@ -319,13 +359,31 @@ class _ChecklistViewState extends State<ChecklistView> {
           },
           itemBuilder: (context, index) {
             final item = _items[index];
+            final isHighlighted = _highlightedItemId == item.id;
 
             return Padding(
               key: ValueKey(item.id),
               padding: const EdgeInsets.symmetric(vertical: 2),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
+              child: AnimatedContainer(
+                key: _getItemKey(item.id),
+                duration: const Duration(milliseconds: 300),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: isHighlighted
+                        ? AppColors.accent
+                        : Colors.transparent,
+                    width: 2,
+                  ),
+                  color: isHighlighted
+                      ? AppColors.accent.withAlpha(25)
+                      : null,
+                ),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
                   // Dedicated drag handle
                   ReorderableDragStartListener(
                     index: index,
@@ -473,8 +531,9 @@ class _ChecklistViewState extends State<ChecklistView> {
                   ),
                 ],
               ),
-            );
-          },
+            ),
+          );
+        },
         ),
 
         const SizedBox(height: 8),

@@ -3,10 +3,22 @@ import '../../../core/database/database_provider.dart';
 import '../../../core/database/local_note_repository.dart';
 import '../../../shared/models/reminder_entity.dart';
 import '../services/reminder_service.dart';
+import '../services/reminder_action_coordinator.dart';
+import '../services/reminder_native_bridge.dart';
 
 final reminderServiceProvider = Provider<ReminderService>((ref) {
   final repo = ref.watch(noteRepositoryProvider) as LocalNoteRepository;
   return ReminderService(repository: repo);
+});
+
+final reminderActionCoordinatorProvider = Provider<ReminderActionCoordinator>((ref) {
+  final repo = ref.watch(noteRepositoryProvider) as LocalNoteRepository;
+  final service = ref.watch(reminderServiceProvider);
+  return ReminderActionCoordinator(
+    repository: repo,
+    reminderService: service,
+    bridge: const ReminderNativeJournalBridge(),
+  );
 });
 
 final remindersStreamProvider = StreamProvider<List<ReminderEntity>>((ref) {

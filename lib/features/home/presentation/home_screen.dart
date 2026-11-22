@@ -45,31 +45,123 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   void initState() {
     super.initState();
     _initNotificationRouting();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkDataRecoveryMode();
+    });
+  }
+
+  void _checkDataRecoveryMode() {
+    final repo = ref.read(noteRepositoryProvider);
+    if (repo.isDataRecoveryMode && mounted) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          icon: const Icon(Icons.warning_amber_rounded, color: Colors.amber, size: 36),
+          title: const Text('Data Recovery Mode'),
+          content: Text(
+            repo.dataRecoveryError ??
+                'Unable to read note data. Please restore from a backup or contact support.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Dismiss'),
+            ),
+            FilledButton.icon(
+              icon: const Icon(Icons.settings_backup_restore_rounded),
+              label: const Text('Restore Backup'),
+              onPressed: () {
+                Navigator.pop(ctx);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const BackupRestoreScreen()),
+                );
+              },
+            ),
+          ],
+        ),
+      );
+    }
   }
 
   void _initNotificationRouting() async {
     try {
       final initial =
           await ReminderNativeBridge.getInitialNotificationPayload();
-      if (initial != null && initial.containsKey('noteId')) {
-        final noteId = initial['noteId'] as String?;
-        if (noteId != null && noteId.isNotEmpty && mounted) {
-          _navigateToEditor(noteId: noteId);
-        }
+      if (initial != null) {
+        _dispatchNotificationPayload(initial);
       }
 
       _notificationTapSub = ReminderNativeBridge.onNotificationTapped.listen((
         payload,
       ) {
         if (!mounted) return;
-        final noteId = payload['noteId'] as String?;
-        if (noteId != null && noteId.isNotEmpty) {
-          _navigateToEditor(noteId: noteId);
-        } else {
-          _navigateToReminders();
-        }
+        _dispatchNotificationPayload(payload);
       });
     } catch (_) {}
+  }
+
+  void _dispatchNotificationPayload(Map<String, dynamic> payload) {
+    if (payload['action'] == 'open_overdue' || payload['initialTabIndex'] != null) {
+      final tabIndex = (payload['initialTabIndex'] as num?)?.toInt() ?? 2;
+      _navigateToReminders(initialTabIndex: tabIndex);
+      return;
+    }
+
+    final noteId = payload['noteId'] as String?;
+    if (noteId != null && noteId.isNotEmpty) {
+      final checklistItemId = payload['checklistItemId'] as String?;
+      final voiceRecordingId = payload['voiceRecordingId'] as String?;
+      _handleNotificationDeepLink(
+        noteId: noteId,
+        checklistItemId: checklistItemId,
+        voiceRecordingId: voiceRecordingId,
+      );
+    } else {
+      _navigateToReminders();
+    }
+  }
+
+  Future<void> _handleNotificationDeepLink({
+    required String noteId,
+    String? checklistItemId,
+    String? voiceRecordingId,
+  }) async {
+    final repo = ref.read(noteRepositoryProvider);
+    final note = await repo.getNoteById(noteId);
+
+    if (!mounted) return;
+
+    if (note == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Target note was deleted')),
+      );
+      return;
+    }
+
+    final targetRouteName = 'editor_$noteId';
+    bool alreadyOnScreen = false;
+    Navigator.of(context).popUntil((route) {
+      if (route.settings.name == targetRouteName) {
+        alreadyOnScreen = true;
+        return true;
+      }
+      return route.isFirst;
+    });
+
+    if (alreadyOnScreen) {
+      return;
+    }
+
+    _navigateToEditor(
+      note: note,
+      noteId: note.id,
+      isChecklist: note.isChecklist,
+      isVoiceNote: note.isVoiceNote,
+      targetChecklistItemId: checklistItemId,
+      targetVoiceRecordingId: voiceRecordingId,
+    );
   }
 
   @override
@@ -84,18 +176,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     String? noteId,
     bool isChecklist = false,
     bool isVoiceNote = false,
+    String? targetChecklistItemId,
+    String? targetVoiceRecordingId,
   }) {
+    final effectiveNoteId = note?.id ?? noteId;
     final filterState = ref.read(noteFilterProvider);
     final isVoice = isVoiceNote || (note?.isVoiceNote ?? false);
+    final routeName =
+        effectiveNoteId != null ? 'editor_$effectiveNoteId' : 'editor_new';
 
     if (isVoice) {
       Navigator.push(
         context,
         MaterialPageRoute(
+          settings: RouteSettings(name: routeName),
           builder: (_) => VoiceNoteEditorScreen(
-            noteId: note?.id ?? noteId,
+            noteId: effectiveNoteId,
             initialNote: note,
             initialFolderId: note?.folderId ?? filterState.selectedFolderId,
+            targetVoiceRecordingId: targetVoiceRecordingId,
           ),
         ),
       );
@@ -105,21 +204,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
+        settings: RouteSettings(name: routeName),
         builder: (_) => NoteEditorScreen(
-          noteId: note?.id ?? noteId,
+          noteId: effectiveNoteId,
           initialNote: note,
           initialFolderId: note?.folderId ?? filterState.selectedFolderId,
           isChecklist: note?.isChecklist ?? isChecklist,
           isVoiceNote: note?.hasAudio ?? false,
+          targetChecklistItemId: targetChecklistItemId,
         ),
       ),
     );
   }
 
-  void _navigateToReminders() {
+  void _navigateToReminders({int initialTabIndex = 0}) {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => const ReminderManagementScreen()),
+      MaterialPageRoute(
+        builder: (_) => ReminderManagementScreen(initialTabIndex: initialTabIndex),
+      ),
     );
   }
 
