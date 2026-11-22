@@ -555,6 +555,57 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
     );
   }
 
+  PopupMenuItem<String> _buildMenuSectionHeader(
+    String title,
+    Color textColor,
+  ) {
+    return PopupMenuItem<String>(
+      enabled: false,
+      height: 28,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Text(
+        title.toUpperCase(),
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 1.0,
+          color: textColor,
+        ),
+      ),
+    );
+  }
+
+  PopupMenuItem<String> _buildMenuItem({
+    required String value,
+    required IconData icon,
+    required String label,
+    Color? iconColor,
+    Color? textColor,
+  }) {
+    return PopupMenuItem<String>(
+      value: value,
+      height: 42,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: iconColor),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: textColor,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -574,6 +625,8 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
         isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
     final secondaryTextColor =
         isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+    final tertiaryTextColor =
+        isDark ? AppColors.darkTextTertiary : AppColors.lightTextTertiary;
 
     final foldersAsync = ref.watch(foldersStreamProvider);
     final folders = foldersAsync.value ?? [];
@@ -584,6 +637,9 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
     final allTags = tagsAsync.value ?? [];
     final noteTags =
         allTags.where((t) => _currentNote.tagIds.contains(t.id)).toList();
+
+    final reminder = ref.watch(noteReminderProvider(_currentNote.id));
+    final hasReminder = reminder != null;
 
     return PopScope(
       canPop: false,
@@ -603,6 +659,7 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
           elevation: 0,
           leading: IconButton(
             icon: const Icon(Icons.arrow_back_rounded),
+            tooltip: 'Back',
             onPressed: () async {
               if (!_isDeleted) {
                 await _saveNoteImmediate();
@@ -611,6 +668,7 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
             },
           ),
           title: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
               Icon(
                 _isSaving ? Icons.sync_rounded : Icons.offline_pin_outlined,
@@ -629,118 +687,18 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
             ],
           ),
           actions: [
-            IconButton(
-              icon: Icon(
-                _currentNote.isFavorite
-                    ? Icons.star_rounded
-                    : Icons.star_outline_rounded,
-                color:
-                    _currentNote.isFavorite ? Colors.amber : secondaryTextColor,
-              ),
-              tooltip:
-                  _currentNote.isFavorite ? 'Unfavorite Note' : 'Favorite Note',
-              onPressed: () {
-                setState(() {
-                  _currentNote = _currentNote.copyWith(
-                      isFavorite: !_currentNote.isFavorite);
-                });
-                _triggerAutoSave();
-              },
-            ),
-            IconButton(
-              icon: Icon(
-                _currentNote.tagIds.isNotEmpty
-                    ? Icons.label_rounded
-                    : Icons.label_outline_rounded,
-                color: _currentNote.tagIds.isNotEmpty
-                    ? AppColors.primary
-                    : secondaryTextColor,
-              ),
-              tooltip: 'Assign Tags',
-              onPressed: _showTagSelector,
-            ),
-            IconButton(
-              icon: Icon(
-                _currentNote.isPinned
-                    ? Icons.push_pin
-                    : Icons.push_pin_outlined,
-                color: _currentNote.isPinned
-                    ? AppColors.pinColor
-                    : secondaryTextColor,
-              ),
-              tooltip: _currentNote.isPinned ? 'Unpin Note' : 'Pin Note',
-              onPressed: () {
-                setState(() {
-                  _currentNote =
-                      _currentNote.copyWith(isPinned: !_currentNote.isPinned);
-                });
-                _triggerAutoSave();
-              },
-            ),
-            IconButton(
-              icon: Icon(
-                _currentNote.hasAudio
-                    ? Icons.mic_rounded
-                    : Icons.mic_none_rounded,
-                color: _currentNote.hasAudio
-                    ? AppColors.primary
-                    : secondaryTextColor,
-              ),
-              tooltip: _currentNote.hasAudio
-                  ? 'Voice Memo Attached'
-                  : 'Record Voice Memo',
-              onPressed: () {
-                setState(() {
-                  _showAudioRecorder = true;
-                });
-              },
-            ),
-            IconButton(
-              icon: Icon(
-                Icons.attach_file_rounded,
-                color: secondaryTextColor,
-              ),
-              tooltip: 'Add Attachment',
-              onPressed: _pickAttachments,
-            ),
-            Consumer(
-              builder: (context, ref, _) {
-                final rem = ref.watch(noteReminderProvider(_currentNote.id));
-                final hasReminder = rem != null;
-
-                return IconButton(
-                  icon: Icon(
-                    hasReminder
-                        ? Icons.alarm_on_rounded
-                        : Icons.alarm_add_rounded,
-                    color: hasReminder ? AppColors.primary : secondaryTextColor,
-                  ),
-                  tooltip: hasReminder ? 'Edit Reminder' : 'Set Reminder',
-                  onPressed: () async {
-                    await _saveNoteImmediate();
-                    if (!context.mounted) return;
-                    final title = _titleController.text.trim().isNotEmpty
-                        ? _titleController.text.trim()
-                        : 'Note Reminder';
-                    final preview =
-                        NoteHelper.extractPlainText(_currentNote.content)
-                            .trim();
-                    ReminderBottomSheet.show(
-                      context: context,
-                      noteId: _currentNote.id,
-                      defaultTitle: title,
-                      defaultPreview: preview,
-                      existingReminder: rem,
-                    );
-                  },
-                );
-              },
-            ),
             PopupMenuButton<String>(
-              icon: Icon(Icons.more_vert, color: secondaryTextColor),
+              icon: Icon(Icons.more_vert_rounded, color: secondaryTextColor),
+              tooltip: 'More options',
+              elevation: 4,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
+                side: BorderSide(
+                  color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+                  width: 1.0,
+                ),
               ),
+              color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
               onSelected: (val) async {
                 switch (val) {
                   case 'favorite':
@@ -752,6 +710,16 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                     break;
                   case 'tags':
                     _showTagSelector();
+                    break;
+                  case 'pin':
+                    setState(() {
+                      _currentNote = _currentNote.copyWith(
+                          isPinned: !_currentNote.isPinned);
+                    });
+                    _triggerAutoSave();
+                    break;
+                  case 'folder':
+                    _showFolderSelector(folders);
                     break;
                   case 'attach':
                     _pickAttachments();
@@ -783,8 +751,22 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                     }
                     _triggerAutoSave();
                     break;
-                  case 'folder':
-                    _showFolderSelector(folders);
+                  case 'reminder':
+                    await _saveNoteImmediate();
+                    if (!context.mounted) return;
+                    final title = _titleController.text.trim().isNotEmpty
+                        ? _titleController.text.trim()
+                        : 'Note Reminder';
+                    final preview =
+                        NoteHelper.extractPlainText(_currentNote.content)
+                            .trim();
+                    ReminderBottomSheet.show(
+                      context: context,
+                      noteId: _currentNote.id,
+                      defaultTitle: title,
+                      defaultPreview: preview,
+                      existingReminder: reminder,
+                    );
                     break;
                   case 'stats':
                     _showStats();
@@ -801,131 +783,120 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                 }
               },
               itemBuilder: (context) => [
-                PopupMenuItem(
+                _buildMenuSectionHeader('Organization', tertiaryTextColor),
+                _buildMenuItem(
                   value: 'favorite',
-                  child: Row(
-                    children: [
-                      Icon(
-                        _currentNote.isFavorite
-                            ? Icons.star_rounded
-                            : Icons.star_outline_rounded,
-                        size: 18,
-                        color: _currentNote.isFavorite ? Colors.amber : null,
-                      ),
-                      const SizedBox(width: 10),
-                      Text(_currentNote.isFavorite
-                          ? 'Remove from Favorites'
-                          : 'Add to Favorites'),
-                    ],
-                  ),
+                  icon: _currentNote.isFavorite
+                      ? Icons.star_rounded
+                      : Icons.star_outline_rounded,
+                  label: _currentNote.isFavorite
+                      ? 'Remove from favorites'
+                      : 'Add to favorites',
+                  iconColor: _currentNote.isFavorite
+                      ? Colors.amber
+                      : secondaryTextColor,
                 ),
-                const PopupMenuItem(
+                _buildMenuItem(
                   value: 'tags',
-                  child: Row(
-                    children: [
-                      Icon(Icons.label_outline_rounded, size: 18),
-                      SizedBox(width: 10),
-                      Text('Assign Tags'),
-                    ],
-                  ),
+                  icon: _currentNote.tagIds.isNotEmpty
+                      ? Icons.label_rounded
+                      : Icons.label_outline_rounded,
+                  label: _currentNote.tagIds.isNotEmpty
+                      ? 'Manage tags'
+                      : 'Add tags',
+                  iconColor: _currentNote.tagIds.isNotEmpty
+                      ? AppColors.primary
+                      : secondaryTextColor,
                 ),
-                const PopupMenuItem(
-                  value: 'attach',
-                  child: Row(
-                    children: [
-                      Icon(Icons.attach_file_rounded, size: 18),
-                      SizedBox(width: 10),
-                      Text('Add Attachment'),
-                    ],
-                  ),
+                _buildMenuItem(
+                  value: 'pin',
+                  icon: _currentNote.isPinned
+                      ? Icons.push_pin_rounded
+                      : Icons.push_pin_outlined,
+                  label: _currentNote.isPinned ? 'Unpin note' : 'Pin note',
+                  iconColor: _currentNote.isPinned
+                      ? AppColors.pinColor
+                      : secondaryTextColor,
                 ),
-                PopupMenuItem(
-                  value: 'voice',
-                  child: Row(
-                    children: [
-                      Icon(
-                        _currentNote.hasAudio
-                            ? Icons.mic_rounded
-                            : Icons.mic_none_rounded,
-                        size: 18,
-                        color: _currentNote.hasAudio ? AppColors.primary : null,
-                      ),
-                      const SizedBox(width: 10),
-                      Text(_currentNote.hasAudio
-                          ? 'Voice Memo Attached'
-                          : 'Record Voice Memo'),
-                    ],
-                  ),
-                ),
-                PopupMenuItem(
-                  value: 'checklist',
-                  child: Row(
-                    children: [
-                      Icon(
-                        _currentNote.isChecklist
-                            ? Icons.notes_rounded
-                            : Icons.checklist_rounded,
-                        size: 18,
-                      ),
-                      const SizedBox(width: 10),
-                      Text(_currentNote.isChecklist
-                          ? 'Convert to Rich Text'
-                          : 'Convert to Checklist'),
-                    ],
-                  ),
-                ),
-                const PopupMenuItem(
+                _buildMenuItem(
                   value: 'folder',
-                  child: Row(
-                    children: [
-                      Icon(Icons.folder_outlined, size: 18),
-                      SizedBox(width: 10),
-                      Text('Assign Folder'),
-                    ],
-                  ),
+                  icon: currentFolder != null
+                      ? Icons.folder_rounded
+                      : Icons.folder_outlined,
+                  label: currentFolder != null
+                      ? 'Folder: ${currentFolder.name}'
+                      : 'Assign folder',
+                  iconColor: currentFolder != null
+                      ? AppColors.primary
+                      : secondaryTextColor,
                 ),
-                const PopupMenuItem(
+                const PopupMenuDivider(height: 1),
+                _buildMenuSectionHeader('Add Content', tertiaryTextColor),
+                _buildMenuItem(
+                  value: 'attach',
+                  icon: Icons.attach_file_rounded,
+                  label: 'Add attachment',
+                  iconColor: secondaryTextColor,
+                ),
+                _buildMenuItem(
+                  value: 'voice',
+                  icon: _currentNote.hasAudio
+                      ? Icons.mic_rounded
+                      : Icons.mic_none_rounded,
+                  label: _currentNote.hasAudio
+                      ? 'Voice memo attached'
+                      : 'Record voice note',
+                  iconColor: _currentNote.hasAudio
+                      ? AppColors.primary
+                      : secondaryTextColor,
+                ),
+                _buildMenuItem(
+                  value: 'checklist',
+                  icon: _currentNote.isChecklist
+                      ? Icons.notes_rounded
+                      : Icons.checklist_rounded,
+                  label: _currentNote.isChecklist
+                      ? 'Convert to rich text'
+                      : 'Convert to checklist',
+                  iconColor: secondaryTextColor,
+                ),
+                const PopupMenuDivider(height: 1),
+                _buildMenuSectionHeader('Scheduling', tertiaryTextColor),
+                _buildMenuItem(
+                  value: 'reminder',
+                  icon: hasReminder
+                      ? Icons.alarm_on_rounded
+                      : Icons.alarm_add_rounded,
+                  label: hasReminder ? 'Edit reminder' : 'Set reminder',
+                  iconColor:
+                      hasReminder ? AppColors.primary : secondaryTextColor,
+                ),
+                const PopupMenuDivider(height: 1),
+                _buildMenuSectionHeader('More Actions', tertiaryTextColor),
+                _buildMenuItem(
                   value: 'stats',
-                  child: Row(
-                    children: [
-                      Icon(Icons.analytics_outlined, size: 18),
-                      SizedBox(width: 10),
-                      Text('Note Info & Stats'),
-                    ],
-                  ),
+                  icon: Icons.analytics_outlined,
+                  label: 'Note info & stats',
+                  iconColor: secondaryTextColor,
                 ),
-                const PopupMenuItem(
+                _buildMenuItem(
                   value: 'copy',
-                  child: Row(
-                    children: [
-                      Icon(Icons.copy_rounded, size: 18),
-                      SizedBox(width: 10),
-                      Text('Copy Note Text'),
-                    ],
-                  ),
+                  icon: Icons.copy_rounded,
+                  label: 'Copy note text',
+                  iconColor: secondaryTextColor,
                 ),
-                const PopupMenuDivider(),
-                const PopupMenuItem(
+                _buildMenuItem(
                   value: 'archive',
-                  child: Row(
-                    children: [
-                      Icon(Icons.archive_outlined, size: 18),
-                      SizedBox(width: 10),
-                      Text('Archive Note'),
-                    ],
-                  ),
+                  icon: Icons.archive_outlined,
+                  label: 'Archive note',
+                  iconColor: secondaryTextColor,
                 ),
-                const PopupMenuItem(
+                _buildMenuItem(
                   value: 'delete',
-                  child: Row(
-                    children: [
-                      Icon(Icons.delete_outline,
-                          size: 18, color: AppColors.danger),
-                      SizedBox(width: 10),
-                      Text('Delete Note',
-                          style: TextStyle(color: AppColors.danger)),
-                    ],
-                  ),
+                  icon: Icons.delete_outline_rounded,
+                  label: 'Delete note',
+                  iconColor: AppColors.danger,
+                  textColor: AppColors.danger,
                 ),
               ],
             ),
