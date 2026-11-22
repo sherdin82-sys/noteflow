@@ -85,6 +85,7 @@ class BackupPreview {
   final bool hasAudio;
   final int audioFilesCount;
   final int remindersCount;
+  final int attachmentsCount;
   final int totalSizeBytes;
   final String? filePath;
   final String? fileName;
@@ -101,6 +102,7 @@ class BackupPreview {
     required this.hasAudio,
     required this.audioFilesCount,
     this.remindersCount = 0,
+    this.attachmentsCount = 0,
     this.totalSizeBytes = 0,
     this.filePath,
     this.fileName,
@@ -128,6 +130,7 @@ class BackupPreview {
       'has_audio': hasAudio,
       'audio_files_count': audioFilesCount,
       'reminders_count': remindersCount,
+      'attachments_count': attachmentsCount,
       'total_size_bytes': totalSizeBytes,
       'file_path': filePath,
       'file_name': fileName,

@@ -5,10 +5,12 @@ import '../../shared/models/tag_entity.dart';
 import '../../shared/models/voice_recording_entity.dart';
 import '../../shared/models/backup_models.dart';
 import '../../shared/models/reminder_entity.dart';
+import '../../shared/models/attachment_entity.dart';
 
 export '../../shared/models/tag_entity.dart';
 export '../../shared/models/backup_models.dart';
 export '../../shared/models/reminder_entity.dart';
+export '../../shared/models/attachment_entity.dart';
 
 abstract class NoteRepository {
   /// Stream of all active or archived notes
@@ -124,4 +126,22 @@ abstract class NoteRepository {
 
   /// Snooze reminder
   Future<void> snoozeReminder(String id, Duration duration);
+
+  /// Stream of attachments for a specific note
+  Stream<List<AttachmentEntity>> watchAttachments(String noteId);
+
+  /// Get list of attachments for a specific note
+  Future<List<AttachmentEntity>> getAttachments(String noteId);
+
+  /// Get attachment by ID
+  Future<AttachmentEntity?> getAttachmentById(String id);
+
+  /// Save or update an attachment
+  Future<void> saveAttachment(AttachmentEntity attachment);
+
+  /// Delete an attachment permanently
+  Future<void> deleteAttachment(String id);
+
+  /// Delete all attachments belonging to a specific note
+  Future<void> deleteAttachmentsForNote(String noteId);
 }

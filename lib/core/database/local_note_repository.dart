@@ -5,6 +5,9 @@ import '../../shared/models/note_entity.dart';
 import '../../shared/models/folder_entity.dart';
 import '../../shared/models/voice_recording_entity.dart';
 import '../utils/audio_helper.dart';
+import '../utils/attachment_helper.dart';
+import '../utils/per_note_mutex.dart';
+import '../utils/attachment_journal.dart';
 import 'note_repository.dart';
 import '../../features/backup/services/backup_service.dart';
 import '../../features/backup/services/restore_service.dart';
@@ -16,6 +19,11 @@ class LocalNoteRepository implements NoteRepository {
   final List<TagEntity> _tags = [];
   final List<VoiceRecordingEntity> _voiceRecordings = [];
   final List<ReminderEntity> _reminders = [];
+  final List<AttachmentEntity> _attachments = [];
+
+  final PerNoteMutex _noteMutex = PerNoteMutex();
+
+  PerNoteMutex get noteMutex => _noteMutex;
 
   int _nextNotificationId = 1000;
 
@@ -24,6 +32,7 @@ class LocalNoteRepository implements NoteRepository {
   final _tagsStreamController = StreamController<List<TagEntity>>.broadcast();
   final _recordingsStreamController = StreamController<List<VoiceRecordingEntity>>.broadcast();
   final _remindersStreamController = StreamController<List<ReminderEntity>>.broadcast();
+  final _attachmentsStreamController = StreamController<List<AttachmentEntity>>.broadcast();
 
   final bool _seedDemoData;
   final bool _enableDiskPersistence;
@@ -64,6 +73,16 @@ class LocalNoteRepository implements NoteRepository {
     }
 
     try {
+      String? baseDir;
+      if (_directoryProvider != null) {
+        baseDir = await _directoryProvider!();
+      } else if (_customStoragePath != null) {
+        baseDir = File(_customStoragePath!).parent.path;
+      }
+      if (baseDir != null) {
+        await _runPreInitRestoreRecovery(baseDir);
+      }
+
       final file = await _getStorageFile();
       if (file != null && await file.exists()) {
         final content = await file.readAsString();
@@ -106,7 +125,27 @@ class LocalNoteRepository implements NoteRepository {
             _reminders.add(ReminderEntity.fromMap(Map<String, dynamic>.from(r as Map)));
           }
 
+          final rawAttachments = data['attachments'] as List<dynamic>? ?? [];
+          _attachments.clear();
+          for (final a in rawAttachments) {
+            if (a is Map) {
+              _attachments.add(AttachmentEntity.fromMap(Map<String, dynamic>.from(a)));
+            }
+          }
+
           await _ensureSampleAudioFiles();
+
+          try {
+            String? baseDir;
+            if (_directoryProvider != null) {
+              baseDir = await _directoryProvider!();
+            } else if (_customStoragePath != null) {
+              baseDir = File(_customStoragePath!).parent.path;
+            }
+            if (baseDir != null) {
+              await _runStartupRecovery(baseDir);
+            }
+          } catch (_) {}
 
           _initialized = true;
           _emitNotes();
@@ -114,12 +153,24 @@ class LocalNoteRepository implements NoteRepository {
           _emitTags();
           _emitRecordings();
           _emitReminders();
+          _emitAttachments();
           return;
         }
       }
 
       // If file didn't exist or was empty, seed demo data and save to disk
       await _ensureSampleAudioFiles();
+      try {
+        String? baseDir;
+        if (_directoryProvider != null) {
+          baseDir = await _directoryProvider!();
+        } else if (_customStoragePath != null) {
+          baseDir = File(_customStoragePath!).parent.path;
+        }
+        if (baseDir != null) {
+          await _runStartupRecovery(baseDir);
+        }
+      } catch (_) {}
       if (_seedDemoData && _notes.isNotEmpty) {
         await _saveToDisk();
       }
@@ -127,6 +178,273 @@ class LocalNoteRepository implements NoteRepository {
       // In case of error (e.g. non-Flutter test environment), maintain in-memory state
     }
     _initialized = true;
+  }
+
+  /// Deterministic crash recovery for Replace & Merge restore operations before loading database.
+  Future<void> _runPreInitRestoreRecovery(String documentsBasePath) async {
+    try {
+      // 1. Check Replace Restore Journal
+      final replaceJournalFile = File('$documentsBasePath/restore_journal.json');
+      if (await replaceJournalFile.exists()) {
+        try {
+          final content = await replaceJournalFile.readAsString();
+          final j = jsonDecode(content) as Map<String, dynamic>;
+          final phase = j['phase'] as String?;
+
+          final liveAttDir = Directory('$documentsBasePath/attachments');
+          final liveVoiceDir = Directory('$documentsBasePath/voice_notes');
+          final safetyBak = File('$documentsBasePath/backups/pre_restore_safety.bak');
+          final dataFile = File('$documentsBasePath/noteflow_data.json');
+
+          if (phase == 'prepared') {
+            await _cleanStagingDirs(documentsBasePath);
+            if (await safetyBak.exists()) await safetyBak.delete();
+          } else if (phase == 'old_directory_moved') {
+            await _restoreRollbackDirs(documentsBasePath);
+            await _cleanStagingDirs(documentsBasePath);
+            if (await safetyBak.exists()) await safetyBak.delete();
+          } else if (phase == 'new_directory_moved') {
+            if (await liveAttDir.exists()) await liveAttDir.delete(recursive: true);
+            if (await liveVoiceDir.exists()) await liveVoiceDir.delete(recursive: true);
+            await _restoreRollbackDirs(documentsBasePath);
+            if (await safetyBak.exists()) {
+              await safetyBak.copy(dataFile.path);
+              await safetyBak.delete();
+            }
+            await _cleanStagingDirs(documentsBasePath);
+          } else if (phase == 'repository_committed' || phase == 'cleanup_complete') {
+            await _purgeRollbackDirs(documentsBasePath);
+            if (await safetyBak.exists()) await safetyBak.delete();
+            await _cleanStagingDirs(documentsBasePath);
+          }
+        } catch (_) {}
+        try {
+          await replaceJournalFile.delete();
+        } catch (_) {}
+      }
+
+      // 2. Check Merge Restore Journal
+      final mergeJournalFile = File('$documentsBasePath/merge_restore_journal.json');
+      if (await mergeJournalFile.exists()) {
+        try {
+          final content = await mergeJournalFile.readAsString();
+          final j = jsonDecode(content) as Map<String, dynamic>;
+          final phase = j['phase'] as String?;
+          final copiedFiles = (j['copied_files'] as List<dynamic>?)?.cast<String>() ?? [];
+
+          if (phase == 'merge_prepared') {
+            await _cleanStagingDirs(documentsBasePath);
+          } else if (phase == 'merge_files_copied') {
+            for (final path in copiedFiles) {
+              try {
+                final f = File(path);
+                if (await f.exists()) await f.delete();
+              } catch (_) {}
+            }
+            await _cleanStagingDirs(documentsBasePath);
+          } else if (phase == 'merge_repository_committed' || phase == 'merge_cleanup_complete') {
+            await _cleanStagingDirs(documentsBasePath);
+          }
+        } catch (_) {}
+        try {
+          await mergeJournalFile.delete();
+        } catch (_) {}
+      }
+
+      await _cleanStagingDirs(documentsBasePath);
+    } catch (_) {}
+  }
+
+  Future<void> _cleanStagingDirs(String basePath) async {
+    try {
+      final dir = Directory(basePath);
+      if (await dir.exists()) {
+        final entries = await dir.list().toList();
+        for (final entry in entries) {
+          if (entry is Directory) {
+            final name = entry.path.split(Platform.pathSeparator).last;
+            if (name.startsWith('attachments_restore_staging_') ||
+                name.startsWith('voice_notes_restore_staging_')) {
+              try {
+                await entry.delete(recursive: true);
+              } catch (_) {}
+            }
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _restoreRollbackDirs(String basePath) async {
+    try {
+      final dir = Directory(basePath);
+      if (await dir.exists()) {
+        final entries = await dir.list().toList();
+        for (final entry in entries) {
+          if (entry is Directory) {
+            final name = entry.path.split(Platform.pathSeparator).last;
+            if (name.startsWith('attachments_rollback_')) {
+              final target = Directory('$basePath/attachments');
+              if (!await target.exists()) {
+                await entry.rename(target.path);
+              }
+            } else if (name.startsWith('voice_notes_rollback_')) {
+              final target = Directory('$basePath/voice_notes');
+              if (!await target.exists()) {
+                await entry.rename(target.path);
+              }
+            }
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _purgeRollbackDirs(String basePath) async {
+    try {
+      final dir = Directory(basePath);
+      if (await dir.exists()) {
+        final entries = await dir.list().toList();
+        for (final entry in entries) {
+          if (entry is Directory) {
+            final name = entry.path.split(Platform.pathSeparator).last;
+            if (name.startsWith('attachments_rollback_') ||
+                name.startsWith('voice_notes_rollback_')) {
+              try {
+                await entry.delete(recursive: true);
+              } catch (_) {}
+            }
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  /// Strict 5-step startup recovery sequencing for crashes, tombstones, and orphans.
+  Future<void> _runStartupRecovery(String documentsBasePath) async {
+    try {
+      final entries = await AttachmentJournal.loadEntries(documentsBasePath);
+      if (entries.isEmpty) {
+        await AttachmentHelper.reconcileAttachments(
+          documentsBasePath: documentsBasePath,
+          activeRelativePaths: _attachments.map((a) => a.relativePath).toList(),
+        );
+        return;
+      }
+
+      // Step 1 (Tombstones): Finish complete deletion of tombstoned notes
+      final tombstones = entries.where((e) => e.type == 'TOMBSTONE_NOTE').toList();
+      for (final tombstone in tombstones) {
+        final noteId = tombstone.noteId;
+        // Delete physical attachment folder
+        await AttachmentHelper.deleteNoteAttachmentDirectory(
+          noteId: noteId,
+          documentsBasePath: documentsBasePath,
+        );
+        // Delete physical voice notes folder
+        try {
+          final audioDir = Directory('$documentsBasePath/voice_notes/$noteId');
+          if (await audioDir.exists()) {
+            await audioDir.delete(recursive: true);
+          }
+        } catch (_) {}
+
+        // Remove from memory
+        _attachments.removeWhere((a) => a.noteId == noteId);
+        _voiceRecordings.removeWhere((r) => r.voiceNoteId == noteId);
+        _reminders.removeWhere((rem) => rem.noteId == noteId);
+        _notes.removeWhere((n) => n.id == noteId);
+
+        // Clear tombstone entry from journal
+        await AttachmentJournal.removeTombstone(
+          documentsBasePath: documentsBasePath,
+          noteId: noteId,
+        );
+      }
+
+      if (tombstones.isNotEmpty) {
+        await _saveToDisk();
+      }
+
+      // Step 2 (Pending Deletions): Complete pending file deletions
+      final deletions = entries.where((e) => e.type == 'DELETE_ATTACHMENT').toList();
+      for (final del in deletions) {
+        if (del.relativePath != null) {
+          try {
+            await AttachmentHelper.deleteAttachmentFile(
+              relativePath: del.relativePath!,
+              documentsBasePath: documentsBasePath,
+            );
+          } catch (_) {}
+        }
+        await AttachmentJournal.removeEntry(
+          documentsBasePath: documentsBasePath,
+          txId: del.txId,
+        );
+      }
+
+      // Step 3 (Pending Imports): Verify parent note status
+      final imports = entries.where((e) => e.type == 'IMPORT_ATTACHMENT').toList();
+      for (final imp in imports) {
+        final noteExists = _notes.any((n) => n.id == imp.noteId);
+        if (!noteExists) {
+          // Parent note does not exist (was deleted/discarded): delete staged and permanent files
+          if (imp.relativePath != null) {
+            try {
+              await AttachmentHelper.deleteAttachmentFile(
+                relativePath: imp.relativePath!,
+                documentsBasePath: documentsBasePath,
+              );
+            } catch (_) {}
+          }
+          if (imp.stagingPath != null) {
+            try {
+              final sf = File(imp.stagingPath!);
+              if (await sf.exists()) await sf.delete();
+            } catch (_) {}
+          }
+        } else {
+          // Parent note exists: if metadata is missing from _attachments, resurrect it
+          final metaExists = _attachments.any((a) => a.id == imp.attachmentId);
+          if (!metaExists && imp.relativePath != null && imp.attachmentId != null) {
+            final file = File('$documentsBasePath/${imp.relativePath!}');
+            if (await file.exists()) {
+              final size = await file.length();
+              final ext = file.path.contains('.') ? file.path.split('.').last : '';
+              final mime = AttachmentHelper.inferMimeType(ext);
+              final category = AttachmentCategory.fromMime(mime, ext);
+              final restoredEntity = AttachmentEntity(
+                id: imp.attachmentId!,
+                noteId: imp.noteId,
+                originalName: file.uri.pathSegments.last,
+                storedName: file.uri.pathSegments.last,
+                relativePath: imp.relativePath!,
+                mimeType: mime,
+                fileExtension: ext,
+                fileSizeBytes: size,
+                category: category,
+                createdAt: DateTime.fromMillisecondsSinceEpoch(imp.timestamp),
+              );
+              _attachments.add(restoredEntity);
+              await _saveToDisk();
+            }
+          }
+        }
+        await AttachmentJournal.removeEntry(
+          documentsBasePath: documentsBasePath,
+          txId: imp.txId,
+        );
+      }
+
+      // Step 4 (Journal Purge): Clear any remaining stale journal entries
+      await AttachmentJournal.clearJournal(documentsBasePath);
+
+      // Step 5 (Orphan Reconciliation): Run orphan cleanup on disk
+      await AttachmentHelper.reconcileAttachments(
+        documentsBasePath: documentsBasePath,
+        activeRelativePaths: _attachments.map((a) => a.relativePath).toList(),
+      );
+    } catch (_) {}
   }
 
   Future<void> _ensureSampleAudioFiles() async {
@@ -226,6 +544,7 @@ class LocalNoteRepository implements NoteRepository {
         'notes': _notes.map((n) => n.toMap()).toList(),
         'voice_recordings': _voiceRecordings.map((r) => r.toMap()).toList(),
         'reminders': _reminders.map((r) => r.toMap()).toList(),
+        'attachments': _attachments.map((a) => a.toMap()).toList(),
       };
       await file.writeAsString(jsonEncode(payload), flush: true);
     } catch (_) {
@@ -441,6 +760,12 @@ class LocalNoteRepository implements NoteRepository {
     }
   }
 
+  void _emitAttachments() {
+    if (!_attachmentsStreamController.isClosed) {
+      _attachmentsStreamController.add(List.unmodifiable(_attachments));
+    }
+  }
+
   int getNextNotificationId() {
     final id = _nextNotificationId++;
     _saveToDisk();
@@ -554,64 +879,93 @@ class LocalNoteRepository implements NoteRepository {
 
   @override
   Future<void> deleteNote(String id) async {
-    final note = await getNoteById(id);
-    if (note?.audioPath != null) {
-      try {
-        final audioFile = File(note!.audioPath!);
-        if (await audioFile.exists()) {
-          await audioFile.delete();
-        }
-      } catch (_) {}
-    }
-
-    // Delete all child voice recordings and their local audio files
-    final childRecordings = _voiceRecordings.where((r) => r.voiceNoteId == id).toList();
-    for (final rec in childRecordings) {
-      if (rec.audioPath.isNotEmpty) {
-        try {
-          final audioFile = File(rec.audioPath);
-          if (await audioFile.exists()) {
-            await audioFile.delete();
-          }
-          final parentDir = audioFile.parent;
-          if (await parentDir.exists() && await parentDir.list().isEmpty) {
-            await parentDir.delete(recursive: true);
-          }
-        } catch (_) {}
-      }
-    }
-    _voiceRecordings.removeWhere((r) => r.voiceNoteId == id);
-    _emitRecordings();
-
-    // Delete all child reminders and cancel their native alarms
-    final childReminders = _reminders.where((r) => r.noteId == id).toList();
-    for (final rem in childReminders) {
-      try {
-        reminderScheduler.cancelAlarm(rem.notificationId);
-      } catch (_) {}
-    }
-    _reminders.removeWhere((r) => r.noteId == id);
-    _emitReminders();
-
-    // Clean up dedicated note audio directory if it exists
-    try {
+    await _noteMutex.runLocked(id, () async {
       String? baseDir;
       if (_directoryProvider != null) {
         baseDir = await _directoryProvider!();
       } else if (_customStoragePath != null) {
         baseDir = File(_customStoragePath!).parent.path;
       }
+
+      final txId = AttachmentHelper.generateUuidV4();
+
+      // Write tombstone to journal BEFORE deleting metadata or files
       if (baseDir != null) {
-        final noteAudioDir = Directory('$baseDir/voice_notes/$id');
-        if (await noteAudioDir.exists()) {
-          await noteAudioDir.delete(recursive: true);
+        await AttachmentJournal.recordTombstone(
+          documentsBasePath: baseDir,
+          txId: txId,
+          noteId: id,
+        );
+      }
+
+      final note = await getNoteById(id);
+      if (note?.audioPath != null) {
+        try {
+          final audioFile = File(note!.audioPath!);
+          if (await audioFile.exists()) {
+            await audioFile.delete();
+          }
+        } catch (_) {}
+      }
+
+      // Delete all child voice recordings and their local audio files
+      final childRecordings = _voiceRecordings.where((r) => r.voiceNoteId == id).toList();
+      for (final rec in childRecordings) {
+        if (rec.audioPath.isNotEmpty) {
+          try {
+            final audioFile = File(rec.audioPath);
+            if (await audioFile.exists()) {
+              await audioFile.delete();
+            }
+            final parentDir = audioFile.parent;
+            if (await parentDir.exists() && await parentDir.list().isEmpty) {
+              await parentDir.delete(recursive: true);
+            }
+          } catch (_) {}
         }
       }
-    } catch (_) {}
+      _voiceRecordings.removeWhere((r) => r.voiceNoteId == id);
+      _emitRecordings();
 
-    _notes.removeWhere((n) => n.id == id);
-    _emitNotes();
-    await _saveToDisk();
+      // Delete all child reminders and cancel their native alarms
+      final childReminders = _reminders.where((r) => r.noteId == id).toList();
+      for (final rem in childReminders) {
+        try {
+          reminderScheduler.cancelAlarm(rem.notificationId);
+        } catch (_) {}
+      }
+      _reminders.removeWhere((r) => r.noteId == id);
+      _emitReminders();
+
+      // Clean up dedicated note directories if they exist
+      try {
+        if (baseDir != null) {
+          final noteAudioDir = Directory('$baseDir/voice_notes/$id');
+          if (await noteAudioDir.exists()) {
+            await noteAudioDir.delete(recursive: true);
+          }
+          await AttachmentHelper.deleteNoteAttachmentDirectory(
+            noteId: id,
+            documentsBasePath: baseDir,
+          );
+        }
+      } catch (_) {}
+
+      _attachments.removeWhere((a) => a.noteId == id);
+      _emitAttachments();
+
+      _notes.removeWhere((n) => n.id == id);
+      _emitNotes();
+      await _saveToDisk();
+
+      // Clear the tombstone from the journal only AFTER noteflow_data.json is flushed
+      if (baseDir != null) {
+        await AttachmentJournal.removeTombstone(
+          documentsBasePath: baseDir,
+          noteId: id,
+        );
+      }
+    });
   }
 
   @override
@@ -863,6 +1217,7 @@ class LocalNoteRepository implements NoteRepository {
   List<VoiceRecordingEntity> getAllVoiceRecordings() =>
       List.unmodifiable(_voiceRecordings);
   List<ReminderEntity> getAllReminders() => List.unmodifiable(_reminders);
+  List<AttachmentEntity> getAllAttachments() => List.unmodifiable(_attachments);
 
   Future<void> replaceAllData({
     required List<FolderEntity> folders,
@@ -870,11 +1225,16 @@ class LocalNoteRepository implements NoteRepository {
     required List<VoiceRecordingEntity> voiceRecordings,
     List<TagEntity>? tags,
     List<ReminderEntity>? reminders,
+    List<AttachmentEntity>? attachments,
     String? themeMode,
   }) async {
     if (themeMode != null) _themeMode = themeMode;
     _folders.clear();
     _folders.addAll(folders);
+    if (attachments != null) {
+      _attachments.clear();
+      _attachments.addAll(attachments);
+    }
     if (tags != null) {
       _tags.clear();
       _tags.addAll(tags);
@@ -917,6 +1277,7 @@ class LocalNoteRepository implements NoteRepository {
       _emitReminders();
     }
     if (tags != null) _emitTags();
+    if (attachments != null) _emitAttachments();
     _emitFolders();
     _emitNotes();
     _emitRecordings();
@@ -929,6 +1290,7 @@ class LocalNoteRepository implements NoteRepository {
     required List<VoiceRecordingEntity> voiceRecordings,
     List<TagEntity>? tags,
     List<ReminderEntity>? reminders,
+    List<AttachmentEntity>? attachments,
     String? themeMode,
   }) async {
     if (themeMode != null) _themeMode = themeMode;
@@ -1006,6 +1368,18 @@ class LocalNoteRepository implements NoteRepository {
         }
       }
       _emitReminders();
+    }
+
+    if (attachments != null) {
+      for (final ba in attachments) {
+        final idx = _attachments.indexWhere((a) => a.id == ba.id);
+        if (idx >= 0) {
+          _attachments[idx] = ba;
+        } else {
+          _attachments.add(ba);
+        }
+      }
+      _emitAttachments();
     }
 
     _emitFolders();
@@ -1226,11 +1600,235 @@ class LocalNoteRepository implements NoteRepository {
     await backupService.deleteBackupFile(filePath);
   }
 
+  // Attachments CRUD
+  @override
+  Stream<List<AttachmentEntity>> watchAttachments(String noteId) async* {
+    List<AttachmentEntity> getForNote() {
+      final list = _attachments.where((a) => a.noteId == noteId).toList()
+        ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+      return List.unmodifiable(list);
+    }
+
+    yield getForNote();
+    yield* _attachmentsStreamController.stream.map((_) => getForNote());
+  }
+
+  @override
+  Future<List<AttachmentEntity>> getAttachments(String noteId) async {
+    final list = _attachments.where((a) => a.noteId == noteId).toList()
+      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    return List.unmodifiable(list);
+  }
+
+  @override
+  Future<AttachmentEntity?> getAttachmentById(String id) async {
+    try {
+      return _attachments.firstWhere((a) => a.id == id);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Future<void> saveAttachment(AttachmentEntity attachment) async {
+    await _noteMutex.runLocked(attachment.noteId, () async {
+      final index = _attachments.indexWhere((a) => a.id == attachment.id);
+      if (index >= 0) {
+        _attachments[index] = attachment;
+      } else {
+        _attachments.add(attachment);
+      }
+      _emitAttachments();
+      await _saveToDisk();
+    });
+  }
+
+  @override
+  Future<void> deleteAttachment(String id) async {
+    final index = _attachments.indexWhere((a) => a.id == id);
+    if (index >= 0) {
+      final attachment = _attachments[index];
+      await _noteMutex.runLocked(attachment.noteId, () async {
+        String? baseDir;
+        if (_directoryProvider != null) {
+          baseDir = await _directoryProvider!();
+        } else if (_customStoragePath != null) {
+          baseDir = File(_customStoragePath!).parent.path;
+        }
+
+        final txId = AttachmentHelper.generateUuidV4();
+        if (baseDir != null) {
+          await AttachmentJournal.recordDeletePending(
+            documentsBasePath: baseDir,
+            txId: txId,
+            noteId: attachment.noteId,
+            attachmentId: attachment.id,
+            relativePath: attachment.relativePath,
+          );
+        }
+
+        try {
+          if (baseDir != null) {
+            await AttachmentHelper.deleteAttachmentFile(
+              relativePath: attachment.relativePath,
+              documentsBasePath: baseDir,
+            );
+          }
+        } catch (_) {}
+
+        _attachments.removeWhere((a) => a.id == id);
+        _emitAttachments();
+        await _saveToDisk();
+
+        if (baseDir != null) {
+          await AttachmentJournal.removeEntry(
+            documentsBasePath: baseDir,
+            txId: txId,
+          );
+        }
+      });
+    }
+  }
+
+  @override
+  Future<void> deleteAttachmentsForNote(String noteId) async {
+    await _noteMutex.runLocked(noteId, () async {
+      try {
+        String? baseDir;
+        if (_directoryProvider != null) {
+          baseDir = await _directoryProvider!();
+        } else if (_customStoragePath != null) {
+          baseDir = File(_customStoragePath!).parent.path;
+        }
+        if (baseDir != null) {
+          await AttachmentHelper.deleteNoteAttachmentDirectory(
+            noteId: noteId,
+            documentsBasePath: baseDir,
+          );
+        }
+      } catch (_) {}
+      _attachments.removeWhere((a) => a.noteId == noteId);
+      _emitAttachments();
+      await _saveToDisk();
+    });
+  }
+
+  /// Atomically commits a staged attachment and persists its metadata,
+  /// guarded by the per-note mutex and durable transaction journal.
+  Future<AttachmentEntity?> importAndSaveAttachment({
+    required String stagingPath,
+    required String originalName,
+    required String noteId,
+    String? mimeType,
+    String Function()? idGenerator,
+  }) async {
+    return _noteMutex.runLocked(noteId, () async {
+      String? baseDir;
+      if (_directoryProvider != null) {
+        baseDir = await _directoryProvider!();
+      } else if (_customStoragePath != null) {
+        baseDir = File(_customStoragePath!).parent.path;
+      }
+      if (baseDir == null) return null;
+
+      // 1. Verify note exists and is not tombstoned
+      final noteExists = _notes.any((n) => n.id == noteId);
+      final isTombstoned = await AttachmentJournal.isNoteTombstoned(
+        documentsBasePath: baseDir,
+        noteId: noteId,
+      );
+      if (!noteExists || isTombstoned) {
+        try {
+          final sf = File(stagingPath);
+          if (await sf.exists()) await sf.delete();
+        } catch (_) {}
+        return null;
+      }
+
+      // 2. Record IMPORT_ATTACHMENT in journal
+      final txId = idGenerator != null ? idGenerator() : AttachmentHelper.generateUuidV4();
+      final rawExt = originalName.contains('.') ? originalName.split('.').last : '';
+      final ext = AttachmentHelper.sanitizeExtension(rawExt);
+      final storedName = ext.isNotEmpty ? '$txId.$ext' : txId;
+      final relPath = '${AttachmentHelper.attachmentsDirName}/$noteId/$storedName';
+
+      await AttachmentJournal.recordImportPending(
+        documentsBasePath: baseDir,
+        txId: txId,
+        noteId: noteId,
+        attachmentId: txId,
+        relativePath: relPath,
+        stagingPath: stagingPath,
+      );
+
+      // 3. Move file to permanent storage
+      final entity = await AttachmentHelper.commitStagedAttachment(
+        stagingPath: stagingPath,
+        originalName: originalName,
+        noteId: noteId,
+        documentsBasePath: baseDir,
+        mimeType: mimeType,
+        idGenerator: () => txId,
+      );
+
+      if (entity == null) {
+        await AttachmentJournal.removeEntry(documentsBasePath: baseDir, txId: txId);
+        return null;
+      }
+
+      // 4. Double check note wasn't deleted while moving file
+      final noteStillExists = _notes.any((n) => n.id == noteId);
+      final noteNowTombstoned = await AttachmentJournal.isNoteTombstoned(
+        documentsBasePath: baseDir,
+        noteId: noteId,
+      );
+      if (!noteStillExists || noteNowTombstoned) {
+        await AttachmentHelper.deleteAttachmentFile(
+          relativePath: entity.relativePath,
+          documentsBasePath: baseDir,
+        );
+        await AttachmentJournal.removeEntry(documentsBasePath: baseDir, txId: txId);
+        return null;
+      }
+
+      // 5. Persist metadata
+      final index = _attachments.indexWhere((a) => a.id == entity.id);
+      if (index >= 0) {
+        _attachments[index] = entity;
+      } else {
+        _attachments.add(entity);
+      }
+      _emitAttachments();
+      await _saveToDisk();
+
+      // 6. Purge journal entry
+      await AttachmentJournal.removeEntry(documentsBasePath: baseDir, txId: txId);
+
+      return entity;
+    });
+  }
+
+  /// Checks if a note has an active tombstone recorded in the journal.
+  Future<bool> isNoteTombstoned(String noteId) async {
+    String? baseDir;
+    if (_directoryProvider != null) {
+      baseDir = await _directoryProvider!();
+    } else if (_customStoragePath != null) {
+      baseDir = File(_customStoragePath!).parent.path;
+    }
+    if (baseDir == null) return false;
+    return AttachmentJournal.isNoteTombstoned(
+      documentsBasePath: baseDir,
+      noteId: noteId,
+    );
+  }
+
   void dispose() {
     _notesStreamController.close();
     _foldersStreamController.close();
     _tagsStreamController.close();
     _recordingsStreamController.close();
     _remindersStreamController.close();
+    _attachmentsStreamController.close();
   }
 }

@@ -22,6 +22,10 @@ import 'widgets/voice_note_widget.dart';
 import '../../reminders/providers/reminder_providers.dart';
 import '../../reminders/presentation/widgets/reminder_bottom_sheet.dart';
 import '../../reminders/presentation/widgets/reminder_chip.dart';
+import '../../attachments/presentation/widgets/attachment_section.dart';
+import '../../attachments/presentation/widgets/attachment_preview_dialog.dart';
+import '../../attachments/services/attachment_native_bridge.dart';
+import '../../../shared/models/attachment_entity.dart';
 
 class NoteEditorScreen extends ConsumerStatefulWidget {
   final String? noteId;
@@ -57,6 +61,7 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
   bool _isDeleted = false;
   bool _isNotePersisted = false;
   bool _showAudioRecorder = false;
+  bool _isImportingAttachments = false;
   String _saveStatus = 'Saved locally';
   final _uuid = const Uuid();
 
@@ -231,8 +236,10 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
 
     final plainText = NoteHelper.extractPlainText(contentToSave).trim();
 
-    // If this is a new note and both title and content are blank (and no audio), discard it
-    if (!_isNotePersisted && title.isEmpty && plainText.isEmpty && !_currentNote.hasAudio) {
+    // If this is a new note and both title and content are blank, check audio and attachments
+    final attachments = await ref.read(noteRepositoryProvider).getAttachments(_currentNote.id);
+    final hasAttachments = attachments.isNotEmpty;
+    if (!_isNotePersisted && title.isEmpty && plainText.isEmpty && !_currentNote.hasAudio && !hasAttachments) {
       return;
     }
 
@@ -252,6 +259,64 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
         _saveStatus = 'Saved locally';
       });
     }
+  }
+
+  Future<void> _pickAttachments() async {
+    // 1. Synchronous pre-persistence: ensure draft note is persisted before adding child attachments
+    await _saveNoteImmediate();
+
+    setState(() {
+      _isImportingAttachments = true;
+    });
+
+    try {
+      final bridge = AttachmentNativeBridge();
+      final result = await bridge.pickAttachments();
+
+      if (result.isCancelled) {
+        return;
+      }
+
+      final repo = ref.read(noteRepositoryProvider) as LocalNoteRepository;
+
+      // Import successful files
+      for (final item in result.successfulItems) {
+        await repo.importAndSaveAttachment(
+          stagingPath: item.stagingPath,
+          originalName: item.originalName,
+          noteId: _currentNote.id,
+          mimeType: item.mimeType,
+        );
+      }
+
+      // Inform user if any file failed or exceeded size limit
+      if (result.failedItems.isNotEmpty && mounted) {
+        final oversized = result.failedItems.where((f) => f.isSizeLimitExceeded).length;
+        final msg = oversized > 0
+            ? '$oversized file(s) exceeded the 25 MB size limit and were skipped.'
+            : 'Some files could not be imported.';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(msg)),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to pick attachments: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isImportingAttachments = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _deleteAttachment(AttachmentEntity attachment) async {
+    final repo = ref.read(noteRepositoryProvider);
+    await repo.deleteAttachment(attachment.id);
   }
 
   void _showFolderSelector(List<FolderEntity> folders) {
@@ -550,6 +615,15 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
               },
             ),
 
+            IconButton(
+              icon: Icon(
+                Icons.attach_file_rounded,
+                color: secondaryTextColor,
+              ),
+              tooltip: 'Add Attachment',
+              onPressed: _pickAttachments,
+            ),
+
             Consumer(
               builder: (context, ref, _) {
                 final rem = ref.watch(noteReminderProvider(_currentNote.id));
@@ -595,6 +669,9 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                     break;
                   case 'tags':
                     _showTagSelector();
+                    break;
+                  case 'attach':
+                    _pickAttachments();
                     break;
                   case 'voice':
                     setState(() {
@@ -659,6 +736,16 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                       Icon(Icons.label_outline_rounded, size: 18),
                       SizedBox(width: 10),
                       Text('Assign Tags'),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'attach',
+                  child: Row(
+                    children: [
+                      Icon(Icons.attach_file_rounded, size: 18),
+                      SizedBox(width: 10),
+                      Text('Add Attachment'),
                     ],
                   ),
                 ),
@@ -872,6 +959,27 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                             },
                           ),
                         ),
+                      );
+                    },
+                  ),
+
+                  // Attachments Strip (hidden when empty)
+                  AttachmentSection(
+                    noteId: _currentNote.id,
+                    isImporting: _isImportingAttachments,
+                    onAddAttachment: _pickAttachments,
+                    onAttachmentTap: (attachment) {
+                      AttachmentPreviewDialog.show(
+                        context: context,
+                        attachment: attachment,
+                        onDelete: () => _deleteAttachment(attachment),
+                      );
+                    },
+                    onAttachmentDelete: (attachment) {
+                      AttachmentPreviewDialog.show(
+                        context: context,
+                        attachment: attachment,
+                        onDelete: () => _deleteAttachment(attachment),
                       );
                     },
                   ),

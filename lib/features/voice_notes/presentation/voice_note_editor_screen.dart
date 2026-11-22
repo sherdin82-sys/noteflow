@@ -17,6 +17,10 @@ import 'widgets/voice_recording_tile.dart';
 import '../../reminders/providers/reminder_providers.dart';
 import '../../reminders/presentation/widgets/reminder_bottom_sheet.dart';
 import '../../reminders/presentation/widgets/reminder_chip.dart';
+import '../../../../shared/models/attachment_entity.dart';
+import '../../attachments/presentation/widgets/attachment_section.dart';
+import '../../attachments/presentation/widgets/attachment_preview_dialog.dart';
+import '../../attachments/services/attachment_picker_service.dart';
 
 class VoiceNoteEditorScreen extends ConsumerStatefulWidget {
   final String? noteId;
@@ -44,6 +48,7 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
   bool _isSaving = false;
   bool _isDeleted = false;
   bool _isNotePersisted = false;
+  bool _isImportingAttachments = false;
   String _saveStatus = 'Saved locally';
 
   @override
@@ -123,9 +128,10 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
 
     final title = _titleController.text.trim();
     final recordings = await ref.read(noteRepositoryProvider).getVoiceRecordings(_currentNote.id);
+    final attachments = await ref.read(noteRepositoryProvider).getAttachments(_currentNote.id);
 
-    // If never persisted, title is empty and no recordings, do not save an orphan note
-    if (!_isNotePersisted && title.isEmpty && recordings.isEmpty) {
+    // If never persisted, title is empty, and no recordings or attachments, do not save an orphan note
+    if (!_isNotePersisted && title.isEmpty && recordings.isEmpty && attachments.isEmpty) {
       if (mounted) {
         setState(() {
           _isSaving = false;
@@ -386,6 +392,78 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
     }
   }
 
+  Future<void> _pickAttachments() async {
+    if (_isImportingAttachments) return;
+
+    // 1. Mandatory Pre-persistence: If draft note has not been saved to disk,
+    // synchronously save it before importing child attachments so the parent note exists.
+    if (!_isNotePersisted) {
+      final title = _titleController.text.trim();
+      final noteToPersist = _currentNote.copyWith(
+        title: title.isEmpty ? 'Voice Note' : title,
+        updatedAt: DateTime.now(),
+      );
+      _currentNote = noteToPersist;
+      _isNotePersisted = true;
+      if (title.isEmpty) {
+        _titleController.text = 'Voice Note';
+      }
+      await ref.read(noteRepositoryProvider).saveNote(noteToPersist);
+    }
+
+    final picker = AttachmentPickerService();
+    final source = await picker.showSourceSelectionModal(context);
+    if (source == null || !mounted) return;
+
+    setState(() => _isImportingAttachments = true);
+    try {
+      final stagedFiles = await picker.pickAndStageFiles(source: source);
+      if (stagedFiles.isEmpty || !mounted) return;
+
+      final repo = ref.read(noteRepositoryProvider);
+      int successCount = 0;
+      for (final staged in stagedFiles) {
+        try {
+          final saved = await repo.importAndSaveAttachment(
+            stagingPath: staged.stagingPath,
+            originalName: staged.originalDisplayName,
+            noteId: _currentNote.id,
+            mimeType: staged.mimeType,
+          );
+          if (saved != null) {
+            successCount++;
+          }
+        } catch (e) {
+          debugPrint('Failed to save attachment ${staged.originalDisplayName}: $e');
+        }
+      }
+
+      if (mounted && successCount > 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Added $successCount ${successCount == 1 ? 'attachment' : 'attachments'}'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error selecting attachments: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isImportingAttachments = false);
+      }
+    }
+  }
+
+  Future<void> _deleteAttachment(AttachmentEntity attachment) async {
+    final repo = ref.read(noteRepositoryProvider);
+    await repo.deleteAttachment(attachment.id);
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -501,6 +579,13 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
               onPressed: () => _showFolderSelector(foldersAsync.value ?? []),
             ),
 
+            // Attachments Action
+            IconButton(
+              icon: const Icon(Icons.attach_file_rounded),
+              tooltip: 'Add Attachment',
+              onPressed: _pickAttachments,
+            ),
+
             // Reminder Action
             Consumer(
               builder: (context, ref, _) {
@@ -534,7 +619,9 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
             PopupMenuButton<String>(
               icon: Icon(Icons.more_vert_rounded, color: secondaryTextColor),
               onSelected: (val) {
-                if (val == 'favorite') {
+                if (val == 'attach') {
+                  _pickAttachments();
+                } else if (val == 'favorite') {
                   setState(() {
                     _currentNote = _currentNote.copyWith(isFavorite: !_currentNote.isFavorite);
                   });
@@ -548,6 +635,16 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
                 }
               },
               itemBuilder: (ctx) => [
+                const PopupMenuItem(
+                  value: 'attach',
+                  child: Row(
+                    children: [
+                      Icon(Icons.attach_file_rounded, size: 20),
+                      SizedBox(width: 8),
+                      Text('Add Attachment'),
+                    ],
+                  ),
+                ),
                 PopupMenuItem(
                   value: 'favorite',
                   child: Row(
@@ -735,6 +832,27 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
                         error: (_, __) => const SizedBox.shrink(),
                       ),
                     ],
+                  ),
+
+                  // Attachments Strip (hidden when empty)
+                  AttachmentSection(
+                    noteId: _currentNote.id,
+                    isImporting: _isImportingAttachments,
+                    onAddAttachment: _pickAttachments,
+                    onAttachmentTap: (attachment) {
+                      AttachmentPreviewDialog.show(
+                        context: context,
+                        attachment: attachment,
+                        onDelete: () => _deleteAttachment(attachment),
+                      );
+                    },
+                    onAttachmentDelete: (attachment) {
+                      AttachmentPreviewDialog.show(
+                        context: context,
+                        attachment: attachment,
+                        onDelete: () => _deleteAttachment(attachment),
+                      );
+                    },
                   ),
                 ],
               ),

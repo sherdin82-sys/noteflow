@@ -1,7 +1,7 @@
 name: noteflow
 description: "A premium, modern, offline-first Android notepad application."
 publish_to: "none"
-version: 1.6.0+25
+version: 1.7.0+26
 
 environment:
   sdk: ">=3.3.0 <4.0.0"
@@ -22,6 +22,7 @@ dependencies:
   cupertino_icons: ^1.0.8
   record: ^5.2.0
   audioplayers: ^6.1.0
+  archive: ^4.7.1
 
 dev_dependencies:
   flutter_test:

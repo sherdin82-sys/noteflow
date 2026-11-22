@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:archive/archive_io.dart';
 import '../../../core/utils/audio_helper.dart';
+import '../../../core/utils/attachment_helper.dart';
 import '../../../core/database/local_note_repository.dart';
 
 class BackupService {
@@ -106,25 +108,58 @@ class BackupService {
   }
 
   /// Creates a complete, atomic, offline .noteflow backup file.
-  /// Writes data with atomic staging and safe renaming.
+  /// Produces a Version 3 ZIP container archive containing manifest.json,
+  /// raw voice notes, and attachments, eliminating base64 memory overhead.
   Future<File> createBackupArchive({
     bool includeAudio = true,
+    bool includeAttachments = true,
     String? customName,
-    bool compress = false,
+    bool compress = true,
     void Function(double progress, String status)? onProgress,
   }) async {
-    onProgress?.call(0.1, 'Gathering notes and folders...');
+    onProgress?.call(0.1, 'Gathering notes, voice memos, and attachments...');
     final now = DateTime.now();
-    final payload = await exportBackupPayload(includeAudio: includeAudio);
+    final baseDir = await getBaseDirectory();
 
-    onProgress?.call(0.5, 'Serializing backup package...');
-    final jsonString = jsonEncode(payload);
+    final folders = repository.getAllFolders();
+    final tags = repository.getAllTags();
+    final notes = repository.getAllNotes();
+    final recordings = repository.getAllVoiceRecordings();
+    final reminders = repository.getAllReminders();
+    final attachments = repository.getAllAttachments();
+    final themeMode = repository.themeMode;
+
+    onProgress?.call(0.3, 'Building backup manifest...');
+    final manifestPayload = {
+      'app': 'NoteFlow',
+      'app_identifier': 'com.noteflow.app',
+      'version': 3,
+      'backup_version': 3,
+      'created_at': now.toIso8601String(),
+      'theme_mode': themeMode,
+      'stats': {
+        'notes_count': notes.length,
+        'folders_count': folders.length,
+        'tags_count': tags.length,
+        'recordings_count': recordings.length,
+        'reminders_count': reminders.length,
+        'has_audio': includeAudio && recordings.isNotEmpty,
+        'audio_files_count': includeAudio ? recordings.length : 0,
+        'attachments_count': includeAttachments ? attachments.length : 0,
+      },
+      'folders': folders.map((f) => f.toMap()).toList(),
+      'tags': tags.map((t) => t.toMap()).toList(),
+      'notes': notes.map((n) => n.toMap()).toList(),
+      'voice_recordings': recordings.map((r) => r.toMap()).toList(),
+      'reminders': reminders.map((r) => r.toMap()).toList(),
+      'attachments': includeAttachments ? attachments.map((a) => a.toMap()).toList() : [],
+    };
 
     final backupDir = await getBackupDirectory();
     final String fileName;
     if (customName != null && customName.trim().isNotEmpty) {
       final clean = customName.trim();
-      fileName = clean.endsWith('.noteflow') || clean.endsWith('.json')
+      fileName = clean.endsWith('.noteflow') || clean.endsWith('.zip')
           ? clean
           : '$clean.noteflow';
     } else {
@@ -140,15 +175,50 @@ class BackupService {
     final tempFile = File('${backupDir.path}/temp_${now.millisecondsSinceEpoch}.tmp');
     final finalFile = File('${backupDir.path}/$fileName');
 
-    onProgress?.call(0.8, 'Writing backup file atomically...');
-    if (compress) {
-      final bytes = utf8.encode(jsonString);
-      final compressedBytes = gzip.encode(bytes);
-      await tempFile.writeAsBytes(compressedBytes, flush: true);
-    } else {
-      await tempFile.writeAsString(jsonString, flush: true);
+    onProgress?.call(0.5, 'Packaging ZIP archive...');
+    final encoder = ZipFileEncoder();
+    encoder.create(tempFile.path);
+
+    // 1. Add manifest.json
+    final manifestBytes = utf8.encode(jsonEncode(manifestPayload));
+    encoder.addArchiveFile(ArchiveFile('manifest.json', manifestBytes.length, manifestBytes));
+
+    // 2. Add raw voice recordings
+    if (includeAudio && baseDir != null) {
+      for (final rec in recordings) {
+        if (rec.audioPath.isNotEmpty) {
+          try {
+            final resolved = await AudioHelper.resolveAudioPath(rec.audioPath, baseDir);
+            final targetPath = resolved ?? rec.audioPath;
+            final f = File(targetPath);
+            if (await f.exists()) {
+              final ext = rec.format.isNotEmpty ? rec.format : 'm4a';
+              await encoder.addFile(f, 'voice_notes/${rec.id}.$ext');
+            }
+          } catch (_) {}
+        }
+      }
     }
 
+    // 3. Add raw attachments
+    if (includeAttachments && baseDir != null) {
+      for (final att in attachments) {
+        try {
+          final absPath = AttachmentHelper.resolveAndVerifyPath(
+            relativePath: att.relativePath,
+            documentsBasePath: baseDir,
+          );
+          final f = File(absPath);
+          if (await f.exists()) {
+            await encoder.addFile(f, att.relativePath);
+          }
+        } catch (_) {}
+      }
+    }
+
+    await encoder.close();
+
+    onProgress?.call(0.9, 'Finalizing backup archive...');
     if (await finalFile.exists()) {
       await finalFile.delete();
     }

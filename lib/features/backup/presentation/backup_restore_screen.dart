@@ -275,8 +275,10 @@ class _BackupRestoreScreenState extends ConsumerState<BackupRestoreScreen> {
                           ],
                         ),
                         const Divider(height: 16),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceAround,
+                        Wrap(
+                          spacing: 12,
+                          runSpacing: 8,
+                          alignment: WrapAlignment.spaceAround,
                           children: [
                             _buildStatChip(Icons.note_alt_outlined, '${preview.notesCount}', 'Notes', textColor, secondaryText),
                             _buildStatChip(Icons.folder_outlined, '${preview.foldersCount}', 'Folders', textColor, secondaryText),
@@ -289,6 +291,8 @@ class _BackupRestoreScreenState extends ConsumerState<BackupRestoreScreen> {
                             ),
                             if (preview.remindersCount > 0)
                               _buildStatChip(Icons.alarm_rounded, '${preview.remindersCount}', 'Reminders', textColor, secondaryText),
+                            if (preview.attachmentsCount > 0)
+                              _buildStatChip(Icons.attach_file_rounded, '${preview.attachmentsCount}', 'Attachments', textColor, secondaryText),
                           ],
                         ),
                       ],
@@ -426,7 +430,7 @@ class _BackupRestoreScreenState extends ConsumerState<BackupRestoreScreen> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    'Restored ${preview.notesCount} notes & ${preview.foldersCount} folders ($strategyName)!',
+                    'Restored ${preview.notesCount} notes, ${preview.foldersCount} folders${preview.attachmentsCount > 0 ? " & ${preview.attachmentsCount} attachments" : ""} ($strategyName)!',
                     style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
                   ),
                 ),
