@@ -98,6 +98,17 @@ class ReminderNativeBridge {
     } catch (_) {}
   }
 
+  /// Reconciles all active reminders by rescheduling with AlarmManager
+  /// (e.g. when exact-alarm permission is granted in system settings)
+  static Future<bool> reconcileAlarms() async {
+    try {
+      final result = await _channel.invokeMethod<bool>('reconcileAlarms');
+      return result ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Check if app notifications are enabled in Android settings
   static Future<bool> areNotificationsEnabled() async {
     try {

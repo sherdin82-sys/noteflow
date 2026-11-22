@@ -97,10 +97,15 @@ class _ReminderBottomSheetState extends State<ReminderBottomSheet> {
       final exact = await ReminderNativeBridge.canScheduleExactAlarms();
       final enabled = await ReminderNativeBridge.areNotificationsEnabled();
       if (mounted) {
+        final previouslyDenied = !_canExactAlarm;
         setState(() {
           _canExactAlarm = exact;
           _notificationsEnabled = enabled;
         });
+        if (previouslyDenied && exact) {
+          // Reconcile existing alarms now that exact scheduling is permitted
+          await ReminderNativeBridge.reconcileAlarms();
+        }
       }
     } catch (_) {}
   }

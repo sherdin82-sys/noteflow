@@ -8,8 +8,10 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.media.AudioAttributes
 import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import androidx.core.app.NotificationCompat
 import com.noteflow.app.MainActivity
 
@@ -43,30 +45,56 @@ object ReminderManager {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-            // 1. Delete legacy public channel if present
-            try {
-                val legacy = notificationManager.getNotificationChannel(LEGACY_CHANNEL_ID)
-                if (legacy != null) {
-                    notificationManager.deleteNotificationChannel(LEGACY_CHANNEL_ID)
-                }
-            } catch (_: Exception) {}
-
-            // 2. Create v2 channel with VISIBILITY_PRIVATE
             val existing = notificationManager.getNotificationChannel(CHANNEL_ID)
             if (existing == null) {
+                // If legacy channel exists, migrate user's custom settings (sound, vibration, importance)
+                val legacy = try {
+                    notificationManager.getNotificationChannel(LEGACY_CHANNEL_ID)
+                } catch (_: Exception) {
+                    null
+                }
+
+                val importance = legacy?.importance ?: NotificationManager.IMPORTANCE_HIGH
+
                 val channel = NotificationChannel(
                     CHANNEL_ID,
                     CHANNEL_NAME,
-                    NotificationManager.IMPORTANCE_HIGH
+                    importance
                 ).apply {
                     description = CHANNEL_DESC
                     enableLights(true)
                     lightColor = Color.parseColor("#2563EB")
-                    enableVibration(true)
-                    vibrationPattern = longArrayOf(0, 250, 200, 250)
                     lockscreenVisibility = Notification.VISIBILITY_PRIVATE
+
+                    if (legacy != null) {
+                        enableVibration(legacy.shouldVibrate())
+                        if (legacy.vibrationPattern != null) {
+                            vibrationPattern = legacy.vibrationPattern
+                        }
+                        if (legacy.sound != null) {
+                            setSound(legacy.sound, legacy.audioAttributes)
+                        } else {
+                            // User previously configured channel to be silent
+                            setSound(null, null)
+                        }
+                    } else {
+                        // Fresh channel: respect system vibration defaults without rigid hardcoded pattern
+                        enableVibration(true)
+                        val audioAttributes = AudioAttributes.Builder()
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                            .setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT)
+                            .build()
+                        setSound(Settings.System.DEFAULT_NOTIFICATION_URI, audioAttributes)
+                    }
                 }
                 notificationManager.createNotificationChannel(channel)
+
+                // Safely remove legacy channel after migrating preferences
+                if (legacy != null) {
+                    try {
+                        notificationManager.deleteNotificationChannel(LEGACY_CHANNEL_ID)
+                    } catch (_: Exception) {}
+                }
             }
         }
     }
@@ -284,6 +312,7 @@ object ReminderManager {
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
             .setVisibility(if (showPreview) NotificationCompat.VISIBILITY_PUBLIC else NotificationCompat.VISIBILITY_PRIVATE)
             .setPublicVersion(publicNotification)
             .setAutoCancel(true)
@@ -348,6 +377,7 @@ object ReminderManager {
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
             .setVisibility(if (showPreview) NotificationCompat.VISIBILITY_PUBLIC else NotificationCompat.VISIBILITY_PRIVATE)
             .setPublicVersion(publicNotification)
             .setAutoCancel(true)

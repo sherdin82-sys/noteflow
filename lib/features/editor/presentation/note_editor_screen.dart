@@ -447,13 +447,9 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
       content: jsonEncode(_quillController.document.toDelta().toJson()),
     );
 
-    showModalBottomSheet(
+    NoteStatsModal.show(
       context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-            top: Radius.circular(AppConstants.radiusLarge)),
-      ),
-      builder: (_) => NoteStatsModal(note: _currentNote),
+      note: _currentNote,
     );
   }
 

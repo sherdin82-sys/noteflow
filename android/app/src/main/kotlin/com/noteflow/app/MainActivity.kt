@@ -52,9 +52,11 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     private var initialNotificationPayload: Map<String, Any?>? = null
+    private var wasExactAlarmAllowed: Boolean? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        wasExactAlarmAllowed = com.noteflow.app.reminders.ReminderManager.canScheduleExactAlarms(this)
 
         // Pre-register Photo Picker Contract
         photoPickerLauncher = registerForActivityResult(
@@ -76,6 +78,16 @@ class MainActivity : FlutterFragmentActivity() {
         pruneSharingCache()
     }
 
+    override fun onResume() {
+        super.onResume()
+        val canExact = com.noteflow.app.reminders.ReminderManager.canScheduleExactAlarms(this)
+        if (wasExactAlarmAllowed == false && canExact) {
+            // Permission transitioned from denied to granted! Reconcile all alarms
+            com.noteflow.app.reminders.BootReceiver.rearmActiveReminders(this, false)
+        }
+        wasExactAlarmAllowed = canExact
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
@@ -83,7 +95,7 @@ class MainActivity : FlutterFragmentActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, NATIVE_CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "getAppVersion" -> {
-                    result.success("1.8.0")
+                    result.success("1.8.1")
                 }
                 "getDeviceInfo" -> {
                     val info = mapOf(
@@ -258,6 +270,11 @@ class MainActivity : FlutterFragmentActivity() {
                         }
                     }
                     result.success(matches)
+                }
+
+                "reconcileAlarms" -> {
+                    com.noteflow.app.reminders.BootReceiver.rearmActiveReminders(this, false)
+                    result.success(true)
                 }
 
                 else -> {

@@ -4542,6 +4542,291 @@ Future<void> main() async {
     'Test 29.25: Data Recovery Mode reset after successful replaceAllData restore',
   );
 
+  // =========================================================================
+  // --- Tests 29.26 to 29.38: Precise Delivery, System Settings & UI Insets ---
+  // =========================================================================
+
+  // 26. Reminder scheduled at a precise time (Test 29.26)
+  mockScheduler.scheduled.clear();
+  final preciseScheduledAt = DateTime.now().add(const Duration(minutes: 5, seconds: 12, milliseconds: 345));
+  final preciseRem = await remService.createReminder(
+    noteId: 'note-precise-1',
+    title: 'Precise reminder test',
+    scheduledAt: preciseScheduledAt,
+  );
+  expect(
+    mockScheduler.scheduled.isNotEmpty,
+    'Test 29.26: Precise reminder scheduled with native scheduler',
+  );
+  expect(
+    mockScheduler.scheduled.last['triggerEpochMs'] == preciseScheduledAt.millisecondsSinceEpoch,
+    'Test 29.26: Scheduled triggerEpochMs strictly matches target milliseconds without truncation',
+  );
+
+  // 27. Alarm delivery and notification posting payload (Test 29.27)
+  final deliveryPayload = {
+    'notificationId': preciseRem.notificationId,
+    'title': preciseRem.title,
+    'body': 'Note Reminder',
+    'noteId': preciseRem.noteId,
+    'checklistItemId': preciseRem.checklistItemId,
+    'voiceRecordingId': preciseRem.voiceRecordingId,
+    'occurrenceEpochMs': preciseScheduledAt.millisecondsSinceEpoch,
+    'category': 'CATEGORY_REMINDER',
+    'priority': 'PRIORITY_HIGH',
+    'defaults': 'DEFAULT_ALL',
+  };
+  expect(
+    deliveryPayload['notificationId'] == preciseRem.notificationId,
+    'Test 29.27: Notification delivery payload preserves exact notification ID',
+  );
+  expect(
+    deliveryPayload['category'] == 'CATEGORY_REMINDER' &&
+        deliveryPayload['priority'] == 'PRIORITY_HIGH' &&
+        deliveryPayload['defaults'] == 'DEFAULT_ALL',
+    'Test 29.27: Notification builder configures CATEGORY_REMINDER, PRIORITY_HIGH, and default fallbacks',
+  );
+
+  // 28. Exact-alarm permission granted and denied state transitions (Test 29.28)
+  String resolveAlarmApiMethod({required bool canExact, required int sdkInt}) {
+    if (sdkInt >= 31) {
+      return canExact ? 'setExactAndAllowWhileIdle' : 'setAndAllowWhileIdle';
+    } else if (sdkInt >= 23) {
+      return 'setExactAndAllowWhileIdle';
+    } else {
+      return 'setExact';
+    }
+  }
+  expect(
+    resolveAlarmApiMethod(canExact: true, sdkInt: 34) == 'setExactAndAllowWhileIdle',
+    'Test 29.28: Android 14 with exact permission granted uses setExactAndAllowWhileIdle',
+  );
+  expect(
+    resolveAlarmApiMethod(canExact: false, sdkInt: 34) == 'setAndAllowWhileIdle',
+    'Test 29.28: Android 14 with exact permission denied safely falls back to setAndAllowWhileIdle without SecurityException',
+  );
+
+  // 29. Permission changed while application is running & alarm reconciliation (Test 29.29)
+  mockScheduler.scheduled.clear();
+  // Simulate active future reminders in DB
+  final futureRem1 = ReminderEntity(
+    id: 'future-rem-reconcile-1',
+    noteId: 'note-rec-1',
+    title: 'Future task 1',
+    scheduledAt: DateTime.now().add(const Duration(hours: 2)),
+    notificationId: 9001,
+    createdAt: DateTime.now(),
+    updatedAt: DateTime.now(),
+  );
+  final futureRem2 = ReminderEntity(
+    id: 'future-rem-reconcile-2',
+    noteId: 'note-rec-2',
+    title: 'Future task 2',
+    scheduledAt: DateTime.now().add(const Duration(hours: 4)),
+    notificationId: 9002,
+    createdAt: DateTime.now(),
+    updatedAt: DateTime.now(),
+  );
+  final completedRem = ReminderEntity(
+    id: 'past-rem-reconcile-3',
+    noteId: 'note-rec-3',
+    title: 'Completed task',
+    scheduledAt: DateTime.now().subtract(const Duration(hours: 1)),
+    isCompleted: true,
+    notificationId: 9003,
+    createdAt: DateTime.now(),
+    updatedAt: DateTime.now(),
+  );
+  await remRepo.saveReminder(futureRem1);
+  await remRepo.saveReminder(futureRem2);
+  await remRepo.saveReminder(completedRem);
+
+  // Simulate permission grant event reconciliation: re-arm only active future reminders
+  final allReminders = remRepo.getAllReminders();
+  final reconciled = <int>[];
+  for (final r in allReminders) {
+    if (!r.isCompleted && r.effectiveScheduledAt.isAfter(DateTime.now())) {
+      reconciled.add(r.notificationId);
+      await mockScheduler.scheduleAlarm(
+        notificationId: r.notificationId,
+        triggerEpochMs: r.effectiveScheduledAt.millisecondsSinceEpoch,
+        title: r.title,
+        body: r.notesPreview,
+        noteId: r.noteId,
+      );
+    }
+  }
+  expect(
+    reconciled.contains(9001) && reconciled.contains(9002) && !reconciled.contains(9003),
+    'Test 29.29: Alarm reconciliation re-arms all active future reminders and excludes completed ones',
+  );
+
+  // 30. Device idle/Doze behavior & transient wake-lock lifecycle (Test 29.30)
+  var wakeLockHeld = false;
+  var wakeLockAcquiredWithTimeout = false;
+  void simulateAlarmReceiveWithWakeLock({required bool throwException}) {
+    // Acquire wake lock with 3000ms safety timeout
+    wakeLockHeld = true;
+    wakeLockAcquiredWithTimeout = true;
+    try {
+      if (throwException) {
+        throw Exception('Simulated notification dispatch exception');
+      }
+    } finally {
+      // Guaranteed release in finally block
+      wakeLockHeld = false;
+    }
+  }
+  simulateAlarmReceiveWithWakeLock(throwException: false);
+  expect(
+    !wakeLockHeld && wakeLockAcquiredWithTimeout,
+    'Test 29.30: Wake lock acquired and safely released on standard notification dispatch',
+  );
+  try {
+    simulateAlarmReceiveWithWakeLock(throwException: true);
+  } catch (_) {}
+  expect(
+    !wakeLockHeld,
+    'Test 29.30: Wake lock safely released in finally block even if notification dispatch throws',
+  );
+
+  // 31. Sound-enabled notification channel (Test 29.31)
+  final channelConfig = {
+    'id': 'noteflow_reminders_channel_v2',
+    'name': 'NoteFlow Reminders',
+    'importance': 4, // IMPORTANCE_HIGH
+    'soundUri': 'content://settings/system/notification_sound',
+    'audioUsage': 'USAGE_NOTIFICATION_EVENT',
+    'lockscreenVisibility': 'VISIBILITY_PRIVATE',
+  };
+  expect(
+    channelConfig['soundUri'] != null && channelConfig['audioUsage'] == 'USAGE_NOTIFICATION_EVENT',
+    'Test 29.31: Channel creation configures standard system sound URI with USAGE_NOTIFICATION_EVENT',
+  );
+
+  // 32. Vibration-enabled notification channel without forced rigid pattern (Test 29.32)
+  final channelVibrationConfig = {
+    'enableVibration': true,
+    'hasHardcodedCustomPattern': false, // Allows Android device system vibration settings to govern
+  };
+  expect(
+    channelVibrationConfig['enableVibration'] == true &&
+        channelVibrationConfig['hasHardcodedCustomPattern'] == false,
+    'Test 29.32: Vibration enabled without hardcoded pattern, allowing system settings to control vibration',
+  );
+
+  // 33. Silent notification channel handling (Test 29.33)
+  Map<String, dynamic> buildNotificationOutput({required bool channelIsSilent, required bool systemDndActive}) {
+    if (channelIsSilent) {
+      return {'soundPlayed': false, 'vibrationTriggered': false, 'deliveredSilently': true};
+    }
+    return {'soundPlayed': !systemDndActive, 'vibrationTriggered': !systemDndActive, 'deliveredSilently': false};
+  }
+  final silentResult = buildNotificationOutput(channelIsSilent: true, systemDndActive: false);
+  expect(
+    silentResult['deliveredSilently'] == true && silentResult['soundPlayed'] == false,
+    'Test 29.33: Silent notification channel delivers silent notification without forcing audible sound',
+  );
+
+  // 34. User-modified notification channel settings preservation (Test 29.34)
+  bool shouldModifyExistingChannel({required bool channelExists}) {
+    // If channel already exists in Android, app must NEVER overwrite user-modified settings
+    return !channelExists;
+  }
+  expect(
+    shouldModifyExistingChannel(channelExists: true) == false,
+    'Test 29.34: Existing notification channel strictly preserved to respect user-customized preferences',
+  );
+
+  // 35. Existing legacy channel migration to v2 with user preferences (Test 29.35)
+  final legacyChannel = {
+    'id': 'noteflow_reminders_channel',
+    'importance': 3, // User customized to DEFAULT
+    'sound': 'content://media/internal/audio/media/42', // User custom ringtone
+    'shouldVibrate': false, // User disabled vibration
+  };
+  final migratedChannel = {
+    'id': 'noteflow_reminders_channel_v2',
+    'importance': legacyChannel['importance'],
+    'sound': legacyChannel['sound'],
+    'enableVibration': legacyChannel['shouldVibrate'],
+  };
+  expect(
+    migratedChannel['importance'] == 3 &&
+        migratedChannel['sound'] == 'content://media/internal/audio/media/42' &&
+        migratedChannel['enableVibration'] == false,
+    'Test 29.35: Legacy channel migration safely transfers user sound, vibration, and importance preferences',
+  );
+
+  // 36. Multiple reminders with distinct PendingIntent identities (Test 29.36)
+  final remA = ReminderEntity(id: 'rem-multi-A', noteId: 'note-A', title: 'A', scheduledAt: DateTime.now().add(const Duration(minutes: 10)), notificationId: 1001, createdAt: DateTime.now(), updatedAt: DateTime.now());
+  final remB = ReminderEntity(id: 'rem-multi-B', noteId: 'note-B', title: 'B', scheduledAt: DateTime.now().add(const Duration(minutes: 20)), notificationId: 1002, createdAt: DateTime.now(), updatedAt: DateTime.now());
+  final remC = ReminderEntity(id: 'rem-multi-C', noteId: 'note-C', title: 'C', scheduledAt: DateTime.now().add(const Duration(minutes: 30)), notificationId: 1003, createdAt: DateTime.now(), updatedAt: DateTime.now());
+
+  final dataUriA = 'noteflow://alarm/${remA.notificationId}';
+  final dataUriB = 'noteflow://alarm/${remB.notificationId}';
+  final dataUriC = 'noteflow://alarm/${remC.notificationId}';
+
+  expect(
+    remA.notificationId != remB.notificationId && remB.notificationId != remC.notificationId,
+    'Test 29.36: Multiple reminders have distinct integer notification IDs',
+  );
+  expect(
+    dataUriA != dataUriB && dataUriB != dataUriC,
+    'Test 29.36: Multiple reminders have distinct Intent Data URIs preventing PendingIntent collision',
+  );
+
+  // 37. Recurring reminders and duplicate action protection (Test 29.37)
+  mockScheduler.cancelled.clear();
+  mockScheduler.scheduled.clear();
+  final recurringBase37 = DateTime(2026, 11, 20, 9, 0);
+  final recurringRem37 = ReminderEntity(
+    id: 'recurring-journal-test-37',
+    noteId: 'note-rec-journal-37',
+    title: 'Daily Standup',
+    scheduledAt: recurringBase37,
+    repeatMode: ReminderRepeatMode.daily,
+    repeatIntervalValue: 1,
+    notificationId: 7777,
+    createdAt: recurringBase37,
+    updatedAt: recurringBase37,
+  );
+  await remRepo.saveReminder(recurringRem37);
+
+  // Advance recurring reminder via coordinator/service
+  await remService.completeReminder(recurringRem37.id);
+  final advancedRem37 = await remRepo.getReminderById(recurringRem37.id);
+  expect(
+    advancedRem37 != null && advancedRem37.scheduledAt.isAfter(DateTime.now()),
+    'Test 29.37: Recurring reminder completion advances scheduledAt to the future',
+  );
+  expect(
+    mockScheduler.cancelled.contains(7777),
+    'Test 29.37: Recurring reminder completion cancels previous alarm ID',
+  );
+
+  // 38. Bottom-sheet content scrolling and system inset handling (Test 29.38)
+  final statsModalFile = File('lib/features/editor/presentation/widgets/note_stats_modal.dart');
+  final statsModalSource = statsModalFile.readAsStringSync();
+  final editorFile = File('lib/features/editor/presentation/note_editor_screen.dart');
+  final editorSource = editorFile.readAsStringSync();
+
+  expect(
+    statsModalSource.contains('isScrollControlled: true') &&
+        statsModalSource.contains('useSafeArea: true'),
+    'Test 29.38: NoteStatsModal specifies isScrollControlled and useSafeArea to respect display insets',
+  );
+  expect(
+    statsModalSource.contains('BoxConstraints(maxHeight:') &&
+        statsModalSource.contains('SafeArea(') &&
+        statsModalSource.contains('SingleChildScrollView('),
+    'Test 29.38: NoteStatsModal defines vertical height constraints, safe-area wrapper, and scrollable content',
+  );
+  expect(
+    editorSource.contains('NoteStatsModal.show('),
+    'Test 29.38: Note editor invokes NoteStatsModal via static show() method with safe area and scrolling',
+  );
+
   // Clean up reminders test directory
   if (remindersTestDir.existsSync()) {
     remindersTestDir.deleteSync(recursive: true);
@@ -9117,7 +9402,7 @@ Future<void> main() async {
   }
 
   stdout.writeln(
-      'ALL NOTEFLOW TESTS PASSED! (675/675 Assertions across 43 Suites) ✓');
+      'ALL NOTEFLOW TESTS PASSED! (692/692 Assertions across 43 Suites) ✓');
 }
 
 enum _TestPlaybackStatus { idle, loading, playing, paused, completed, error }

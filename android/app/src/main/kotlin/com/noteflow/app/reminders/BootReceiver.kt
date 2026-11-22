@@ -1,5 +1,6 @@
 package com.noteflow.app.reminders
 
+import android.app.AlarmManager
 import android.app.NotificationManager
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -41,34 +42,8 @@ class BootReceiver : BroadcastReceiver() {
 
             return null
         }
-    }
 
-    data class MissedReminder(
-        val notificationId: Int,
-        val title: String,
-        val body: String,
-        val noteId: String,
-        val checklistItemId: String?,
-        val voiceRecordingId: String?
-    )
-
-    override fun onReceive(context: Context, intent: Intent) {
-        val action = intent.action ?: return
-        if (action == Intent.ACTION_BOOT_COMPLETED ||
-            action == "android.intent.action.QUICKBOOT_POWERON" ||
-            action == Intent.ACTION_MY_PACKAGE_REPLACED ||
-            action == Intent.ACTION_TIME_CHANGED ||
-            action == Intent.ACTION_TIMEZONE_CHANGED
-        ) {
-            val isBootAction = action == Intent.ACTION_BOOT_COMPLETED ||
-                action == "android.intent.action.QUICKBOOT_POWERON" ||
-                action == Intent.ACTION_MY_PACKAGE_REPLACED
-
-            rearmActiveReminders(context, isBootAction)
-        }
-    }
-
-    private fun rearmActiveReminders(context: Context, isBootAction: Boolean) {
+        fun rearmActiveReminders(context: Context, isBootAction: Boolean = false) {
         try {
             val dataFile = getAuthoritativeDataFile(context) ?: return
             val content = dataFile.readText(Charsets.UTF_8)
@@ -299,15 +274,45 @@ class BootReceiver : BroadcastReceiver() {
         return Pair(cal.timeInMillis, outSdf.format(cal.time))
     }
 
-    private fun saveJsonSafely(targetFile: File, root: JSONObject) {
-        try {
-            val parentDir = targetFile.parentFile ?: return
-            val tmpFile = File(parentDir, "${targetFile.name}.tmp")
-            val content = root.toString()
-            tmpFile.writeText(content, Charsets.UTF_8)
-            if (tmpFile.exists() && tmpFile.length() > 0) {
-                tmpFile.renameTo(targetFile)
-            }
-        } catch (_: Exception) {}
+        private fun saveJsonSafely(targetFile: File, root: JSONObject) {
+            try {
+                val parentDir = targetFile.parentFile ?: return
+                val tmpFile = File(parentDir, "${targetFile.name}.tmp")
+                val content = root.toString()
+                tmpFile.writeText(content, Charsets.UTF_8)
+                if (tmpFile.exists() && tmpFile.length() > 0) {
+                    tmpFile.renameTo(targetFile)
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
+    data class MissedReminder(
+        val notificationId: Int,
+        val title: String,
+        val body: String,
+        val noteId: String,
+        val checklistItemId: String?,
+        val voiceRecordingId: String?
+    )
+
+    override fun onReceive(context: Context, intent: Intent) {
+        val action = intent.action ?: return
+        val isExactAlarmPermissionChange = action == "android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" ||
+            (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && action == AlarmManager.ACTION_SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED)
+
+        if (action == Intent.ACTION_BOOT_COMPLETED ||
+            action == "android.intent.action.QUICKBOOT_POWERON" ||
+            action == Intent.ACTION_MY_PACKAGE_REPLACED ||
+            action == Intent.ACTION_TIME_CHANGED ||
+            action == Intent.ACTION_TIMEZONE_CHANGED ||
+            isExactAlarmPermissionChange
+        ) {
+            val isBootAction = action == Intent.ACTION_BOOT_COMPLETED ||
+                action == "android.intent.action.QUICKBOOT_POWERON" ||
+                action == Intent.ACTION_MY_PACKAGE_REPLACED
+
+            rearmActiveReminders(context, isBootAction)
+        }
     }
 }
