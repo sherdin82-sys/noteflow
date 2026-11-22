@@ -28,11 +28,15 @@ class LocalNoteRepository implements NoteRepository {
   int _nextNotificationId = 1000;
 
   final _notesStreamController = StreamController<List<NoteEntity>>.broadcast();
-  final _foldersStreamController = StreamController<List<FolderEntity>>.broadcast();
+  final _foldersStreamController =
+      StreamController<List<FolderEntity>>.broadcast();
   final _tagsStreamController = StreamController<List<TagEntity>>.broadcast();
-  final _recordingsStreamController = StreamController<List<VoiceRecordingEntity>>.broadcast();
-  final _remindersStreamController = StreamController<List<ReminderEntity>>.broadcast();
-  final _attachmentsStreamController = StreamController<List<AttachmentEntity>>.broadcast();
+  final _recordingsStreamController =
+      StreamController<List<VoiceRecordingEntity>>.broadcast();
+  final _remindersStreamController =
+      StreamController<List<ReminderEntity>>.broadcast();
+  final _attachmentsStreamController =
+      StreamController<List<AttachmentEntity>>.broadcast();
 
   final bool _seedDemoData;
   final bool _enableDiskPersistence;
@@ -94,11 +98,13 @@ class LocalNoteRepository implements NoteRepository {
           final rawFolders = data['folders'] as List<dynamic>? ?? [];
           final rawTags = data['tags'] as List<dynamic>? ?? [];
           final rawNotes = data['notes'] as List<dynamic>? ?? [];
-          final rawRecordings = data['voice_recordings'] as List<dynamic>? ?? [];
+          final rawRecordings =
+              data['voice_recordings'] as List<dynamic>? ?? [];
 
           _folders.clear();
           for (final f in rawFolders) {
-            _folders.add(FolderEntity.fromMap(Map<String, dynamic>.from(f as Map)));
+            _folders
+                .add(FolderEntity.fromMap(Map<String, dynamic>.from(f as Map)));
           }
 
           _tags.clear();
@@ -113,7 +119,8 @@ class LocalNoteRepository implements NoteRepository {
 
           _voiceRecordings.clear();
           for (final r in rawRecordings) {
-            _voiceRecordings.add(VoiceRecordingEntity.fromMap(Map<String, dynamic>.from(r as Map)));
+            _voiceRecordings.add(VoiceRecordingEntity.fromMap(
+                Map<String, dynamic>.from(r as Map)));
           }
 
           if (data.containsKey('next_notification_id')) {
@@ -122,14 +129,16 @@ class LocalNoteRepository implements NoteRepository {
           final rawReminders = data['reminders'] as List<dynamic>? ?? [];
           _reminders.clear();
           for (final r in rawReminders) {
-            _reminders.add(ReminderEntity.fromMap(Map<String, dynamic>.from(r as Map)));
+            _reminders.add(
+                ReminderEntity.fromMap(Map<String, dynamic>.from(r as Map)));
           }
 
           final rawAttachments = data['attachments'] as List<dynamic>? ?? [];
           _attachments.clear();
           for (final a in rawAttachments) {
             if (a is Map) {
-              _attachments.add(AttachmentEntity.fromMap(Map<String, dynamic>.from(a)));
+              _attachments
+                  .add(AttachmentEntity.fromMap(Map<String, dynamic>.from(a)));
             }
           }
 
@@ -184,7 +193,8 @@ class LocalNoteRepository implements NoteRepository {
   Future<void> _runPreInitRestoreRecovery(String documentsBasePath) async {
     try {
       // 1. Check Replace Restore Journal
-      final replaceJournalFile = File('$documentsBasePath/restore_journal.json');
+      final replaceJournalFile =
+          File('$documentsBasePath/restore_journal.json');
       if (await replaceJournalFile.exists()) {
         try {
           final content = await replaceJournalFile.readAsString();
@@ -193,7 +203,8 @@ class LocalNoteRepository implements NoteRepository {
 
           final liveAttDir = Directory('$documentsBasePath/attachments');
           final liveVoiceDir = Directory('$documentsBasePath/voice_notes');
-          final safetyBak = File('$documentsBasePath/backups/pre_restore_safety.bak');
+          final safetyBak =
+              File('$documentsBasePath/backups/pre_restore_safety.bak');
           final dataFile = File('$documentsBasePath/noteflow_data.json');
 
           if (phase == 'prepared') {
@@ -204,15 +215,18 @@ class LocalNoteRepository implements NoteRepository {
             await _cleanStagingDirs(documentsBasePath);
             if (await safetyBak.exists()) await safetyBak.delete();
           } else if (phase == 'new_directory_moved') {
-            if (await liveAttDir.exists()) await liveAttDir.delete(recursive: true);
-            if (await liveVoiceDir.exists()) await liveVoiceDir.delete(recursive: true);
+            if (await liveAttDir.exists())
+              await liveAttDir.delete(recursive: true);
+            if (await liveVoiceDir.exists())
+              await liveVoiceDir.delete(recursive: true);
             await _restoreRollbackDirs(documentsBasePath);
             if (await safetyBak.exists()) {
               await safetyBak.copy(dataFile.path);
               await safetyBak.delete();
             }
             await _cleanStagingDirs(documentsBasePath);
-          } else if (phase == 'repository_committed' || phase == 'cleanup_complete') {
+          } else if (phase == 'repository_committed' ||
+              phase == 'cleanup_complete') {
             await _purgeRollbackDirs(documentsBasePath);
             if (await safetyBak.exists()) await safetyBak.delete();
             await _cleanStagingDirs(documentsBasePath);
@@ -224,13 +238,15 @@ class LocalNoteRepository implements NoteRepository {
       }
 
       // 2. Check Merge Restore Journal
-      final mergeJournalFile = File('$documentsBasePath/merge_restore_journal.json');
+      final mergeJournalFile =
+          File('$documentsBasePath/merge_restore_journal.json');
       if (await mergeJournalFile.exists()) {
         try {
           final content = await mergeJournalFile.readAsString();
           final j = jsonDecode(content) as Map<String, dynamic>;
           final phase = j['phase'] as String?;
-          final copiedFiles = (j['copied_files'] as List<dynamic>?)?.cast<String>() ?? [];
+          final copiedFiles =
+              (j['copied_files'] as List<dynamic>?)?.cast<String>() ?? [];
 
           if (phase == 'merge_prepared') {
             await _cleanStagingDirs(documentsBasePath);
@@ -242,7 +258,8 @@ class LocalNoteRepository implements NoteRepository {
               } catch (_) {}
             }
             await _cleanStagingDirs(documentsBasePath);
-          } else if (phase == 'merge_repository_committed' || phase == 'merge_cleanup_complete') {
+          } else if (phase == 'merge_repository_committed' ||
+              phase == 'merge_cleanup_complete') {
             await _cleanStagingDirs(documentsBasePath);
           }
         } catch (_) {}
@@ -333,7 +350,8 @@ class LocalNoteRepository implements NoteRepository {
       }
 
       // Step 1 (Tombstones): Finish complete deletion of tombstoned notes
-      final tombstones = entries.where((e) => e.type == 'TOMBSTONE_NOTE').toList();
+      final tombstones =
+          entries.where((e) => e.type == 'TOMBSTONE_NOTE').toList();
       for (final tombstone in tombstones) {
         final noteId = tombstone.noteId;
         // Delete physical attachment folder
@@ -367,7 +385,8 @@ class LocalNoteRepository implements NoteRepository {
       }
 
       // Step 2 (Pending Deletions): Complete pending file deletions
-      final deletions = entries.where((e) => e.type == 'DELETE_ATTACHMENT').toList();
+      final deletions =
+          entries.where((e) => e.type == 'DELETE_ATTACHMENT').toList();
       for (final del in deletions) {
         if (del.relativePath != null) {
           try {
@@ -384,7 +403,8 @@ class LocalNoteRepository implements NoteRepository {
       }
 
       // Step 3 (Pending Imports): Verify parent note status
-      final imports = entries.where((e) => e.type == 'IMPORT_ATTACHMENT').toList();
+      final imports =
+          entries.where((e) => e.type == 'IMPORT_ATTACHMENT').toList();
       for (final imp in imports) {
         final noteExists = _notes.any((n) => n.id == imp.noteId);
         if (!noteExists) {
@@ -406,11 +426,14 @@ class LocalNoteRepository implements NoteRepository {
         } else {
           // Parent note exists: if metadata is missing from _attachments, resurrect it
           final metaExists = _attachments.any((a) => a.id == imp.attachmentId);
-          if (!metaExists && imp.relativePath != null && imp.attachmentId != null) {
+          if (!metaExists &&
+              imp.relativePath != null &&
+              imp.attachmentId != null) {
             final file = File('$documentsBasePath/${imp.relativePath!}');
             if (await file.exists()) {
               final size = await file.length();
-              final ext = file.path.contains('.') ? file.path.split('.').last : '';
+              final ext =
+                  file.path.contains('.') ? file.path.split('.').last : '';
               final mime = AttachmentHelper.inferMimeType(ext);
               final category = AttachmentCategory.fromMime(mime, ext);
               final restoredEntity = AttachmentEntity(
@@ -462,13 +485,16 @@ class LocalNoteRepository implements NoteRepository {
     for (int i = 0; i < _voiceRecordings.length; i++) {
       final rec = _voiceRecordings[i];
       if (rec.voiceNoteId == 'note-meeting-sync' || rec.audioPath.isEmpty) {
-        final targetPath = '$baseDir/voice_notes/${rec.voiceNoteId}/${rec.id}.wav';
+        final targetPath =
+            '$baseDir/voice_notes/${rec.voiceNoteId}/${rec.id}.wav';
         final targetFile = File(targetPath);
         if (!targetFile.existsSync() || targetFile.lengthSync() == 0) {
           try {
             targetFile.parent.createSync(recursive: true);
             final freq = rec.id.contains('intro') ? 440.0 : 554.37;
-            final durationSec = rec.durationMs > 0 ? (rec.durationMs / 1000).clamp(3, 10).toInt() : 4;
+            final durationSec = rec.durationMs > 0
+                ? (rec.durationMs / 1000).clamp(3, 10).toInt()
+                : 4;
             targetFile.writeAsBytesSync(
               AudioHelper.createSampleWavBytes(
                 durationSeconds: durationSec,
@@ -500,7 +526,9 @@ class LocalNoteRepository implements NoteRepository {
             final recoveredFile = File(recovered);
             _voiceRecordings[i] = rec.copyWith(
               audioPath: recovered,
-              fileSize: recoveredFile.existsSync() ? recoveredFile.lengthSync() : rec.fileSize,
+              fileSize: recoveredFile.existsSync()
+                  ? recoveredFile.lengthSync()
+                  : rec.fileSize,
             );
             updated = true;
           }
@@ -640,8 +668,7 @@ class LocalNoteRepository implements NoteRepository {
       NoteEntity(
         id: 'note-groceries',
         title: 'Weekly Essentials & Tasks',
-        content:
-            '[x] Almond milk & Greek yogurt\n'
+        content: '[x] Almond milk & Greek yogurt\n'
             '[x] Fresh sourdough bread\n'
             '[ ] Organic olive oil & balsamic vinegar\n'
             '[ ] Arabica coffee beans\n'
@@ -661,8 +688,7 @@ class LocalNoteRepository implements NoteRepository {
       NoteEntity(
         id: 'note-architecture',
         title: 'Offline-First Architecture Notes',
-        content:
-            'Drift SQLite serves as the single source of truth.\n\n'
+        content: 'Drift SQLite serves as the single source of truth.\n\n'
             '1. All write operations commit immediately to local disk.\n'
             '2. Reactive queries emit updates to Riverpod providers.\n'
             '3. Clean Architecture separates domain entities from UI widgets.',
@@ -793,7 +819,9 @@ class LocalNoteRepository implements NoteRepository {
     final actionType = action['action'] as String?;
     final notificationId = action['notificationId'] as int? ?? -1;
     final noteId = action['noteId'] as String? ?? '';
-    final idx = _reminders.indexWhere((r) => r.notificationId == notificationId || (noteId.isNotEmpty && r.noteId == noteId));
+    final idx = _reminders.indexWhere((r) =>
+        r.notificationId == notificationId ||
+        (noteId.isNotEmpty && r.noteId == noteId));
     if (idx < 0) return false;
 
     final rem = _reminders[idx];
@@ -821,7 +849,8 @@ class LocalNoteRepository implements NoteRepository {
   }
 
   @override
-  Stream<List<NoteEntity>> watchNotes({bool includeArchived = false, String? folderId}) async* {
+  Stream<List<NoteEntity>> watchNotes(
+      {bool includeArchived = false, String? folderId}) async* {
     List<NoteEntity> filterNotes(List<NoteEntity> notes) {
       return notes.where((note) {
         if (!includeArchived && note.isArchived) return false;
@@ -857,7 +886,9 @@ class LocalNoteRepository implements NoteRepository {
     _emitNotes();
 
     // Invalidate any checklist item reminders whose stable item tag was deleted from note content
-    final checklistReminders = _reminders.where((r) => r.noteId == note.id && r.isChecklistItemReminder).toList();
+    final checklistReminders = _reminders
+        .where((r) => r.noteId == note.id && r.isChecklistItemReminder)
+        .toList();
     if (checklistReminders.isNotEmpty) {
       final itemMatches = RegExp(r'<!--id:(.*?)-->').allMatches(note.content);
       final existingItemIds = itemMatches.map((m) => m.group(1)).toSet();
@@ -909,7 +940,8 @@ class LocalNoteRepository implements NoteRepository {
       }
 
       // Delete all child voice recordings and their local audio files
-      final childRecordings = _voiceRecordings.where((r) => r.voiceNoteId == id).toList();
+      final childRecordings =
+          _voiceRecordings.where((r) => r.voiceNoteId == id).toList();
       for (final rec in childRecordings) {
         if (rec.audioPath.isNotEmpty) {
           try {
@@ -1101,9 +1133,12 @@ class LocalNoteRepository implements NoteRepository {
 
   // Voice Recordings CRUD
   @override
-  Stream<List<VoiceRecordingEntity>> watchVoiceRecordings(String voiceNoteId) async* {
+  Stream<List<VoiceRecordingEntity>> watchVoiceRecordings(
+      String voiceNoteId) async* {
     List<VoiceRecordingEntity> getSorted() {
-      final list = _voiceRecordings.where((r) => r.voiceNoteId == voiceNoteId).toList()
+      final list = _voiceRecordings
+          .where((r) => r.voiceNoteId == voiceNoteId)
+          .toList()
         ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
       return list;
     }
@@ -1113,8 +1148,11 @@ class LocalNoteRepository implements NoteRepository {
   }
 
   @override
-  Future<List<VoiceRecordingEntity>> getVoiceRecordings(String voiceNoteId) async {
-    final list = _voiceRecordings.where((r) => r.voiceNoteId == voiceNoteId).toList()
+  Future<List<VoiceRecordingEntity>> getVoiceRecordings(
+      String voiceNoteId) async {
+    final list = _voiceRecordings
+        .where((r) => r.voiceNoteId == voiceNoteId)
+        .toList()
       ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
     return list;
   }
@@ -1144,7 +1182,8 @@ class LocalNoteRepository implements NoteRepository {
           } else if (_customStoragePath != null) {
             baseDir = File(_customStoragePath!).parent.path;
           }
-          final resolved = await AudioHelper.resolveAudioPath(rec.audioPath, baseDir);
+          final resolved =
+              await AudioHelper.resolveAudioPath(rec.audioPath, baseDir);
           final filePath = resolved ?? rec.audioPath;
           final file = File(filePath);
           if (await file.exists()) {
@@ -1156,7 +1195,8 @@ class LocalNoteRepository implements NoteRepository {
       _emitRecordings();
 
       // Cancel and remove any reminders targeting this recording
-      final recReminders = _reminders.where((r) => r.voiceRecordingId == recordingId).toList();
+      final recReminders =
+          _reminders.where((r) => r.voiceRecordingId == recordingId).toList();
       for (final rem in recReminders) {
         try {
           reminderScheduler.cancelAlarm(rem.notificationId);
@@ -1170,12 +1210,15 @@ class LocalNoteRepository implements NoteRepository {
   }
 
   @override
-  Future<void> reorderVoiceRecordings(String voiceNoteId, List<String> orderedIds) async {
+  Future<void> reorderVoiceRecordings(
+      String voiceNoteId, List<String> orderedIds) async {
     for (int i = 0; i < orderedIds.length; i++) {
       final id = orderedIds[i];
-      final index = _voiceRecordings.indexWhere((r) => r.id == id && r.voiceNoteId == voiceNoteId);
+      final index = _voiceRecordings
+          .indexWhere((r) => r.id == id && r.voiceNoteId == voiceNoteId);
       if (index >= 0) {
-        _voiceRecordings[index] = _voiceRecordings[index].copyWith(sortOrder: i);
+        _voiceRecordings[index] =
+            _voiceRecordings[index].copyWith(sortOrder: i);
       }
     }
     _emitRecordings();
@@ -1187,7 +1230,8 @@ class LocalNoteRepository implements NoteRepository {
     final index = _voiceRecordings.indexWhere((r) => r.id == recordingId);
     if (index >= 0) {
       final current = _voiceRecordings[index];
-      _voiceRecordings[index] = current.copyWith(isCompleted: !current.isCompleted);
+      _voiceRecordings[index] =
+          current.copyWith(isCompleted: !current.isCompleted);
       _emitRecordings();
       await _saveToDisk();
     }
@@ -1196,6 +1240,7 @@ class LocalNoteRepository implements NoteRepository {
   BackupService get backupService => BackupService(repository: this);
   RestoreService get restoreService => RestoreService(repository: this);
 
+  @override
   Future<String?> getBaseDirectory() async {
     if (_directoryProvider != null) {
       try {
@@ -1204,7 +1249,8 @@ class LocalNoteRepository implements NoteRepository {
     } else if (_customStoragePath != null) {
       return File(_customStoragePath!).parent.path;
     }
-    return null;
+    final file = await _getStorageFile();
+    return file?.parent.path;
   }
 
   Future<Directory> getBackupDirectory() async {
@@ -1262,7 +1308,9 @@ class LocalNoteRepository implements NoteRepository {
               notificationId: rem.notificationId,
               triggerEpochMs: rem.effectiveScheduledAt.millisecondsSinceEpoch,
               title: rem.title,
-              body: rem.notesPreview.isNotEmpty ? rem.notesPreview : 'Note Reminder',
+              body: rem.notesPreview.isNotEmpty
+                  ? rem.notesPreview
+                  : 'Note Reminder',
               noteId: rem.noteId,
               checklistItemId: rem.checklistItemId,
               voiceRecordingId: rem.voiceRecordingId,
@@ -1306,8 +1354,8 @@ class LocalNoteRepository implements NoteRepository {
 
     if (tags != null) {
       for (final bt in tags) {
-        final idx = _tags.indexWhere((t) =>
-            t.id == bt.id || TagEntity.namesEqual(t.name, bt.name));
+        final idx = _tags.indexWhere(
+            (t) => t.id == bt.id || TagEntity.namesEqual(t.name, bt.name));
         if (idx >= 0) {
           _tags[idx] = bt;
         } else {
@@ -1355,7 +1403,9 @@ class LocalNoteRepository implements NoteRepository {
               notificationId: br.notificationId,
               triggerEpochMs: br.effectiveScheduledAt.millisecondsSinceEpoch,
               title: br.title,
-              body: br.notesPreview.isNotEmpty ? br.notesPreview : 'Note Reminder',
+              body: br.notesPreview.isNotEmpty
+                  ? br.notesPreview
+                  : 'Note Reminder',
               noteId: br.noteId,
               checklistItemId: br.checklistItemId,
               voiceRecordingId: br.voiceRecordingId,
@@ -1412,25 +1462,30 @@ class LocalNoteRepository implements NoteRepository {
   @override
   Future<ReminderEntity?> getReminderForNote(String noteId) async {
     try {
-      return _reminders.firstWhere((r) => r.noteId == noteId && r.isWholeNoteReminder);
+      return _reminders
+          .firstWhere((r) => r.noteId == noteId && r.isWholeNoteReminder);
     } catch (_) {
       return null;
     }
   }
 
   @override
-  Future<ReminderEntity?> getReminderForChecklistItem(String noteId, String checklistItemId) async {
+  Future<ReminderEntity?> getReminderForChecklistItem(
+      String noteId, String checklistItemId) async {
     try {
-      return _reminders.firstWhere((r) => r.noteId == noteId && r.checklistItemId == checklistItemId);
+      return _reminders.firstWhere(
+          (r) => r.noteId == noteId && r.checklistItemId == checklistItemId);
     } catch (_) {
       return null;
     }
   }
 
   @override
-  Future<ReminderEntity?> getReminderForVoiceRecording(String voiceRecordingId) async {
+  Future<ReminderEntity?> getReminderForVoiceRecording(
+      String voiceRecordingId) async {
     try {
-      return _reminders.firstWhere((r) => r.voiceRecordingId == voiceRecordingId);
+      return _reminders
+          .firstWhere((r) => r.voiceRecordingId == voiceRecordingId);
     } catch (_) {
       return null;
     }
@@ -1496,7 +1551,9 @@ class LocalNoteRepository implements NoteRepository {
           notificationId: rem.notificationId,
           triggerEpochMs: newTime.millisecondsSinceEpoch,
           title: rem.title,
-          body: rem.notesPreview.isNotEmpty ? rem.notesPreview : 'Note Reminder (Snoozed)',
+          body: rem.notesPreview.isNotEmpty
+              ? rem.notesPreview
+              : 'Note Reminder (Snoozed)',
           noteId: rem.noteId,
           checklistItemId: rem.checklistItemId,
           voiceRecordingId: rem.voiceRecordingId,
@@ -1508,7 +1565,8 @@ class LocalNoteRepository implements NoteRepository {
   }
 
   @override
-  Future<Map<String, dynamic>> exportBackupPayload({bool includeAudio = true}) async {
+  Future<Map<String, dynamic>> exportBackupPayload(
+      {bool includeAudio = true}) async {
     final now = DateTime.now();
     final Map<String, String> audioPayloads = {};
     int audioFilesCount = 0;
@@ -1518,7 +1576,8 @@ class LocalNoteRepository implements NoteRepository {
       for (final rec in _voiceRecordings) {
         if (rec.audioPath.isNotEmpty) {
           try {
-            final resolved = await AudioHelper.resolveAudioPath(rec.audioPath, baseDir);
+            final resolved =
+                await AudioHelper.resolveAudioPath(rec.audioPath, baseDir);
             final targetPath = resolved ?? rec.audioPath;
             final file = File(targetPath);
             if (await file.exists() && await file.length() > 0) {
@@ -1532,7 +1591,8 @@ class LocalNoteRepository implements NoteRepository {
       for (final note in _notes) {
         if (note.audioPath != null && note.audioPath!.isNotEmpty) {
           try {
-            final resolved = await AudioHelper.resolveAudioPath(note.audioPath!, baseDir);
+            final resolved =
+                await AudioHelper.resolveAudioPath(note.audioPath!, baseDir);
             final targetPath = resolved ?? note.audioPath!;
             final file = File(targetPath);
             if (await file.exists() && await file.length() > 0) {
@@ -1570,7 +1630,8 @@ class LocalNoteRepository implements NoteRepository {
   }
 
   @override
-  Future<File> createBackupFile({bool includeAudio = true, String? customName}) async {
+  Future<File> createBackupFile(
+      {bool includeAudio = true, String? customName}) async {
     return backupService.createBackupArchive(
       includeAudio: includeAudio,
       customName: customName,
@@ -1592,7 +1653,8 @@ class LocalNoteRepository implements NoteRepository {
     String jsonStringOrFilePath, {
     required RestoreStrategy strategy,
   }) async {
-    await restoreService.restoreArchive(jsonStringOrFilePath, strategy: strategy);
+    await restoreService.restoreArchive(jsonStringOrFilePath,
+        strategy: strategy);
   }
 
   @override
@@ -1747,11 +1809,15 @@ class LocalNoteRepository implements NoteRepository {
       }
 
       // 2. Record IMPORT_ATTACHMENT in journal
-      final txId = idGenerator != null ? idGenerator() : AttachmentHelper.generateUuidV4();
-      final rawExt = originalName.contains('.') ? originalName.split('.').last : '';
+      final txId = idGenerator != null
+          ? idGenerator()
+          : AttachmentHelper.generateUuidV4();
+      final rawExt =
+          originalName.contains('.') ? originalName.split('.').last : '';
       final ext = AttachmentHelper.sanitizeExtension(rawExt);
       final storedName = ext.isNotEmpty ? '$txId.$ext' : txId;
-      final relPath = '${AttachmentHelper.attachmentsDirName}/$noteId/$storedName';
+      final relPath =
+          '${AttachmentHelper.attachmentsDirName}/$noteId/$storedName';
 
       await AttachmentJournal.recordImportPending(
         documentsBasePath: baseDir,
@@ -1773,7 +1839,8 @@ class LocalNoteRepository implements NoteRepository {
       );
 
       if (entity == null) {
-        await AttachmentJournal.removeEntry(documentsBasePath: baseDir, txId: txId);
+        await AttachmentJournal.removeEntry(
+            documentsBasePath: baseDir, txId: txId);
         return null;
       }
 
@@ -1788,7 +1855,8 @@ class LocalNoteRepository implements NoteRepository {
           relativePath: entity.relativePath,
           documentsBasePath: baseDir,
         );
-        await AttachmentJournal.removeEntry(documentsBasePath: baseDir, txId: txId);
+        await AttachmentJournal.removeEntry(
+            documentsBasePath: baseDir, txId: txId);
         return null;
       }
 
@@ -1803,7 +1871,8 @@ class LocalNoteRepository implements NoteRepository {
       await _saveToDisk();
 
       // 6. Purge journal entry
-      await AttachmentJournal.removeEntry(documentsBasePath: baseDir, txId: txId);
+      await AttachmentJournal.removeEntry(
+          documentsBasePath: baseDir, txId: txId);
 
       return entity;
     });

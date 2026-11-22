@@ -35,7 +35,8 @@ class VoiceNoteEditorScreen extends ConsumerStatefulWidget {
   });
 
   @override
-  ConsumerState<VoiceNoteEditorScreen> createState() => _VoiceNoteEditorScreenState();
+  ConsumerState<VoiceNoteEditorScreen> createState() =>
+      _VoiceNoteEditorScreenState();
 }
 
 class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
@@ -83,11 +84,13 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
       _initExistingNote();
     }
 
-    _titleController = TextEditingController(text: _isLoading ? '' : _currentNote.title);
+    _titleController =
+        TextEditingController(text: _isLoading ? '' : _currentNote.title);
   }
 
   Future<void> _initExistingNote() async {
-    final note = await ref.read(noteRepositoryProvider).getNoteById(widget.noteId!);
+    final note =
+        await ref.read(noteRepositoryProvider).getNoteById(widget.noteId!);
     if (mounted) {
       if (note != null) {
         setState(() {
@@ -127,11 +130,17 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
     if (_isDeleted) return;
 
     final title = _titleController.text.trim();
-    final recordings = await ref.read(noteRepositoryProvider).getVoiceRecordings(_currentNote.id);
-    final attachments = await ref.read(noteRepositoryProvider).getAttachments(_currentNote.id);
+    final recordings = await ref
+        .read(noteRepositoryProvider)
+        .getVoiceRecordings(_currentNote.id);
+    final attachments =
+        await ref.read(noteRepositoryProvider).getAttachments(_currentNote.id);
 
     // If never persisted, title is empty, and no recordings or attachments, do not save an orphan note
-    if (!_isNotePersisted && title.isEmpty && recordings.isEmpty && attachments.isEmpty) {
+    if (!_isNotePersisted &&
+        title.isEmpty &&
+        recordings.isEmpty &&
+        attachments.isEmpty) {
       if (mounted) {
         setState(() {
           _isSaving = false;
@@ -183,11 +192,13 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(AppConstants.radiusLarge)),
+        borderRadius: BorderRadius.vertical(
+            top: Radius.circular(AppConstants.radiusLarge)),
       ),
       builder: (bottomContext) => SafeArea(
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: AppConstants.paddingMedium),
+          padding:
+              const EdgeInsets.symmetric(vertical: AppConstants.paddingMedium),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -219,11 +230,13 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(AppConstants.radiusLarge)),
+        borderRadius: BorderRadius.vertical(
+            top: Radius.circular(AppConstants.radiusLarge)),
       ),
       builder: (bottomContext) => SafeArea(
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: AppConstants.paddingMedium),
+          padding:
+              const EdgeInsets.symmetric(vertical: AppConstants.paddingMedium),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -335,12 +348,15 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
               ref.read(voicePlayerProvider.notifier).stop();
 
               if (_isNotePersisted) {
-                await ref.read(noteRepositoryProvider).deleteNote(_currentNote.id);
+                await ref
+                    .read(noteRepositoryProvider)
+                    .deleteNote(_currentNote.id);
               }
               if (dialogCtx.mounted) Navigator.pop(dialogCtx);
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Voice Note deleted permanently')),
+                  const SnackBar(
+                      content: Text('Voice Note deleted permanently')),
                 );
                 Navigator.pop(context);
               }
@@ -440,14 +456,16 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
       if (mounted && successCount > 0) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Added $successCount ${successCount == 1 ? 'attachment' : 'attachments'}'),
+            content: Text(
+                'Added $successCount ${successCount == 1 ? 'attachment' : 'attachments'}'),
             duration: const Duration(seconds: 2),
           ),
         );
       }
 
       if (result.failedItems.isNotEmpty && mounted) {
-        final oversized = result.failedItems.where((f) => f.isSizeLimitExceeded).length;
+        final oversized =
+            result.failedItems.where((f) => f.isSizeLimitExceeded).length;
         final msg = oversized > 0
             ? '$oversized file(s) exceeded the 25 MB size limit and were skipped.'
             : 'Some files could not be imported.';
@@ -473,6 +491,37 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
     await repo.deleteAttachment(attachment.id);
   }
 
+  void _confirmDeleteAttachment(AttachmentEntity attachment) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
+        ),
+        title: const Text('Remove Attachment?'),
+        content: Text(
+            'Are you sure you want to remove "${attachment.originalName}"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.of(dialogContext).pop();
+              await _deleteAttachment(attachment);
+            },
+            child: const Text(
+              'Remove',
+              style: TextStyle(
+                  color: AppColors.danger, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -482,20 +531,27 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
     }
 
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final primaryTextColor = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
-    final secondaryTextColor = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+    final primaryTextColor =
+        isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
+    final secondaryTextColor =
+        isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
 
     final foldersAsync = ref.watch(foldersStreamProvider);
-    final recordingsAsync = ref.watch(voiceRecordingsStreamProvider(_currentNote.id));
+    final recordingsAsync =
+        ref.watch(voiceRecordingsStreamProvider(_currentNote.id));
     final tagsAsync = ref.watch(tagsStreamProvider);
     final allTags = tagsAsync.value ?? [];
-    final noteTags = allTags.where((t) => _currentNote.tagIds.contains(t.id)).toList();
-    final currentFolder = (foldersAsync.value ?? []).where((f) => f.id == _currentNote.folderId).firstOrNull;
+    final noteTags =
+        allTags.where((t) => _currentNote.tagIds.contains(t.id)).toList();
+    final currentFolder = (foldersAsync.value ?? [])
+        .where((f) => f.id == _currentNote.folderId)
+        .firstOrNull;
 
     final isChecklistMode = _currentNote.voiceMode == 'checklist';
 
     // Background tint color
-    final colorList = isDark ? AppColors.darkNoteColors : AppColors.lightNoteColors;
+    final colorList =
+        isDark ? AppColors.darkNoteColors : AppColors.lightNoteColors;
     final tintColor = _currentNote.colorIndex < colorList.length
         ? colorList[_currentNote.colorIndex]
         : (isDark ? AppColors.darkBackground : AppColors.lightBackground);
@@ -534,13 +590,17 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
             // Favorite Toggle
             IconButton(
               icon: Icon(
-                _currentNote.isFavorite ? Icons.star_rounded : Icons.star_outline_rounded,
-                color: _currentNote.isFavorite ? Colors.amber : secondaryTextColor,
+                _currentNote.isFavorite
+                    ? Icons.star_rounded
+                    : Icons.star_outline_rounded,
+                color:
+                    _currentNote.isFavorite ? Colors.amber : secondaryTextColor,
               ),
               tooltip: _currentNote.isFavorite ? 'Unfavorite' : 'Favorite',
               onPressed: () {
                 setState(() {
-                  _currentNote = _currentNote.copyWith(isFavorite: !_currentNote.isFavorite);
+                  _currentNote = _currentNote.copyWith(
+                      isFavorite: !_currentNote.isFavorite);
                 });
                 _triggerAutoSave();
               },
@@ -549,8 +609,12 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
             // Tag Selector
             IconButton(
               icon: Icon(
-                _currentNote.tagIds.isNotEmpty ? Icons.label_rounded : Icons.label_outline_rounded,
-                color: _currentNote.tagIds.isNotEmpty ? AppColors.primary : secondaryTextColor,
+                _currentNote.tagIds.isNotEmpty
+                    ? Icons.label_rounded
+                    : Icons.label_outline_rounded,
+                color: _currentNote.tagIds.isNotEmpty
+                    ? AppColors.primary
+                    : secondaryTextColor,
               ),
               tooltip: 'Assign Tags',
               onPressed: _showTagSelector,
@@ -559,13 +623,18 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
             // Pin / Unpin
             IconButton(
               icon: Icon(
-                _currentNote.isPinned ? Icons.push_pin : Icons.push_pin_outlined,
-                color: _currentNote.isPinned ? AppColors.primary : secondaryTextColor,
+                _currentNote.isPinned
+                    ? Icons.push_pin
+                    : Icons.push_pin_outlined,
+                color: _currentNote.isPinned
+                    ? AppColors.primary
+                    : secondaryTextColor,
               ),
               tooltip: _currentNote.isPinned ? 'Unpin' : 'Pin',
               onPressed: () {
                 setState(() {
-                  _currentNote = _currentNote.copyWith(isPinned: !_currentNote.isPinned);
+                  _currentNote =
+                      _currentNote.copyWith(isPinned: !_currentNote.isPinned);
                 });
                 _triggerAutoSave();
               },
@@ -581,8 +650,12 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
             // Folder Assignment
             IconButton(
               icon: Icon(
-                _currentNote.folderId != null ? Icons.folder_rounded : Icons.folder_outlined,
-                color: _currentNote.folderId != null ? AppColors.primary : secondaryTextColor,
+                _currentNote.folderId != null
+                    ? Icons.folder_rounded
+                    : Icons.folder_outlined,
+                color: _currentNote.folderId != null
+                    ? AppColors.primary
+                    : secondaryTextColor,
               ),
               tooltip: 'Assign Folder',
               onPressed: () => _showFolderSelector(foldersAsync.value ?? []),
@@ -603,7 +676,9 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
 
                 return IconButton(
                   icon: Icon(
-                    hasReminder ? Icons.alarm_on_rounded : Icons.alarm_add_rounded,
+                    hasReminder
+                        ? Icons.alarm_on_rounded
+                        : Icons.alarm_add_rounded,
                     color: hasReminder ? AppColors.primary : secondaryTextColor,
                   ),
                   tooltip: hasReminder ? 'Edit Reminder' : 'Set Reminder',
@@ -632,7 +707,8 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
                   _pickAttachments();
                 } else if (val == 'favorite') {
                   setState(() {
-                    _currentNote = _currentNote.copyWith(isFavorite: !_currentNote.isFavorite);
+                    _currentNote = _currentNote.copyWith(
+                        isFavorite: !_currentNote.isFavorite);
                   });
                   _triggerAutoSave();
                 } else if (val == 'tags') {
@@ -659,12 +735,16 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
                   child: Row(
                     children: [
                       Icon(
-                        _currentNote.isFavorite ? Icons.star_rounded : Icons.star_outline_rounded,
+                        _currentNote.isFavorite
+                            ? Icons.star_rounded
+                            : Icons.star_outline_rounded,
                         size: 20,
                         color: _currentNote.isFavorite ? Colors.amber : null,
                       ),
                       const SizedBox(width: 8),
-                      Text(_currentNote.isFavorite ? 'Remove from Favorites' : 'Add to Favorites'),
+                      Text(_currentNote.isFavorite
+                          ? 'Remove from Favorites'
+                          : 'Add to Favorites'),
                     ],
                   ),
                 ),
@@ -692,9 +772,11 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
                   value: 'delete',
                   child: Row(
                     children: [
-                      Icon(Icons.delete_outline_rounded, size: 20, color: AppColors.danger),
+                      Icon(Icons.delete_outline_rounded,
+                          size: 20, color: AppColors.danger),
                       SizedBox(width: 8),
-                      Text('Delete Note', style: TextStyle(color: AppColors.danger)),
+                      Text('Delete Note',
+                          style: TextStyle(color: AppColors.danger)),
                     ],
                   ),
                 ),
@@ -723,7 +805,8 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
                             avatar: const Icon(Icons.folder_outlined, size: 14),
                             label: Text(currentFolder.name),
                             visualDensity: VisualDensity.compact,
-                            onPressed: () => _showFolderSelector(foldersAsync.value ?? []),
+                            onPressed: () =>
+                                _showFolderSelector(foldersAsync.value ?? []),
                           ),
                         for (final tag in noteTags)
                           TagChip(
@@ -731,7 +814,9 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
                             onDeleted: () {
                               setState(() {
                                 _currentNote = _currentNote.copyWith(
-                                  tagIds: _currentNote.tagIds.where((id) => id != tag.id).toList(),
+                                  tagIds: _currentNote.tagIds
+                                      .where((id) => id != tag.id)
+                                      .toList(),
                                 );
                               });
                               _triggerAutoSave();
@@ -739,7 +824,8 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
                           ),
                         ActionChip(
                           avatar: const Icon(Icons.add, size: 14),
-                          label: const Text('Add Tag', style: TextStyle(fontSize: 12)),
+                          label: const Text('Add Tag',
+                              style: TextStyle(fontSize: 12)),
                           visualDensity: VisualDensity.compact,
                           onPressed: _showTagSelector,
                         ),
@@ -774,7 +860,8 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
                   // Active Note Reminder Chip
                   Consumer(
                     builder: (context, ref, _) {
-                      final rem = ref.watch(noteReminderProvider(_currentNote.id));
+                      final rem =
+                          ref.watch(noteReminderProvider(_currentNote.id));
                       if (rem == null) return const SizedBox.shrink();
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 12),
@@ -783,9 +870,10 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
                           child: ReminderChip(
                             reminder: rem,
                             onTap: () {
-                              final title = _titleController.text.trim().isNotEmpty
-                                  ? _titleController.text.trim()
-                                  : 'Voice Note Reminder';
+                              final title =
+                                  _titleController.text.trim().isNotEmpty
+                                      ? _titleController.text.trim()
+                                      : 'Voice Note Reminder';
                               ReminderBottomSheet.show(
                                 context: context,
                                 noteId: _currentNote.id,
@@ -794,7 +882,9 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
                               );
                             },
                             onDelete: () {
-                              ref.read(reminderServiceProvider).deleteReminder(rem.id);
+                              ref
+                                  .read(reminderServiceProvider)
+                                  .deleteReminder(rem.id);
                             },
                           ),
                         ),
@@ -810,7 +900,8 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
                           ButtonSegment<String>(
                             value: 'list',
                             label: Text('List'),
-                            icon: Icon(Icons.format_list_bulleted_rounded, size: 16),
+                            icon: Icon(Icons.format_list_bulleted_rounded,
+                                size: 16),
                           ),
                           ButtonSegment<String>(
                             value: 'checklist',
@@ -856,11 +947,7 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
                       );
                     },
                     onAttachmentDelete: (attachment) {
-                      AttachmentPreviewDialog.show(
-                        context: context,
-                        attachment: attachment,
-                        onDelete: () => _deleteAttachment(attachment),
-                      );
+                      _confirmDeleteAttachment(attachment);
                     },
                   ),
                 ],
@@ -885,7 +972,8 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
                               height: 64,
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
-                                color: AppColors.primary.withAlpha(isDark ? 30 : 15),
+                                color: AppColors.primary
+                                    .withAlpha(isDark ? 30 : 15),
                               ),
                               child: const Icon(
                                 Icons.mic_none_rounded,
@@ -956,7 +1044,9 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
                               );
                         },
                         onDelete: () {
-                          ref.read(noteRepositoryProvider).deleteVoiceRecording(recording.id);
+                          ref
+                              .read(noteRepositoryProvider)
+                              .deleteVoiceRecording(recording.id);
                         },
                         dragHandle: ReorderableDragStartListener(
                           index: index,
@@ -974,7 +1064,8 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
                   );
                 },
                 loading: () => const Center(child: CircularProgressIndicator()),
-                error: (e, _) => Center(child: Text('Error loading recordings: $e')),
+                error: (e, _) =>
+                    Center(child: Text('Error loading recordings: $e')),
               ),
             ),
           ],

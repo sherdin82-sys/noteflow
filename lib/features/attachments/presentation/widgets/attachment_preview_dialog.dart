@@ -1,11 +1,13 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/constants/app_constants.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../shared/models/attachment_entity.dart';
+import '../../providers/attachment_providers.dart';
 import '../../services/attachment_native_bridge.dart';
 
-class AttachmentPreviewDialog extends StatelessWidget {
+class AttachmentPreviewDialog extends ConsumerWidget {
   final AttachmentEntity attachment;
   final VoidCallback? onDelete;
   final String? documentsBasePath;
@@ -34,19 +36,24 @@ class AttachmentPreviewDialog extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    final baseDir = documentsBasePath;
+    final baseDir =
+        documentsBasePath ?? ref.watch(documentsBasePathProvider).value;
     File? physicalFile;
     bool isMissing = false;
-    if (baseDir != null) {
+    if (baseDir != null && baseDir.isNotEmpty) {
       physicalFile = File('$baseDir/${attachment.relativePath}');
       isMissing = !physicalFile.existsSync();
+    } else {
+      isMissing = true;
     }
 
-    final isImage = attachment.category == AttachmentCategory.image && !isMissing && physicalFile != null;
+    final isImage = attachment.category == AttachmentCategory.image &&
+        !isMissing &&
+        physicalFile != null;
 
     return Dialog(
       backgroundColor: isDark ? AppColors.darkSurface : AppColors.lightSurface,
@@ -71,7 +78,9 @@ class AttachmentPreviewDialog extends StatelessWidget {
                         style: TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.w600,
-                          color: isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary,
+                          color: isDark
+                              ? AppColors.darkTextPrimary
+                              : AppColors.lightTextPrimary,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -81,7 +90,9 @@ class AttachmentPreviewDialog extends StatelessWidget {
                         '${attachment.formattedSize} • ${attachment.fileExtension.toUpperCase()}',
                         style: TextStyle(
                           fontSize: 12,
-                          color: isDark ? AppColors.darkTextTertiary : AppColors.lightTextTertiary,
+                          color: isDark
+                              ? AppColors.darkTextTertiary
+                              : AppColors.lightTextTertiary,
                         ),
                       ),
                     ],
@@ -110,7 +121,8 @@ class AttachmentPreviewDialog extends StatelessWidget {
                       child: Image.file(
                         physicalFile!,
                         fit: BoxFit.contain,
-                        errorBuilder: (ctx, err, stack) => _buildMissingState(isDark),
+                        errorBuilder: (ctx, err, stack) =>
+                            _buildMissingState(isDark),
                       ),
                     )
                   : _buildDocumentDetails(context, isDark, isMissing),
@@ -126,10 +138,12 @@ class AttachmentPreviewDialog extends StatelessWidget {
               children: [
                 TextButton.icon(
                   onPressed: () => _confirmDelete(context),
-                  icon: const Icon(Icons.delete_outline_rounded, color: AppColors.danger, size: 18),
+                  icon: const Icon(Icons.delete_outline_rounded,
+                      color: AppColors.danger, size: 18),
                   label: const Text(
                     'Remove',
-                    style: TextStyle(color: AppColors.danger, fontWeight: FontWeight.w600),
+                    style: TextStyle(
+                        color: AppColors.danger, fontWeight: FontWeight.w600),
                   ),
                 ),
                 Row(
@@ -186,7 +200,8 @@ class AttachmentPreviewDialog extends StatelessWidget {
     );
   }
 
-  Widget _buildDocumentDetails(BuildContext context, bool isDark, bool isMissing) {
+  Widget _buildDocumentDetails(
+      BuildContext context, bool isDark, bool isMissing) {
     if (isMissing) {
       return _buildMissingState(isDark);
     }
@@ -206,7 +221,9 @@ class AttachmentPreviewDialog extends StatelessWidget {
             style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w600,
-              color: isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary,
+              color: isDark
+                  ? AppColors.darkTextPrimary
+                  : AppColors.lightTextPrimary,
             ),
             textAlign: TextAlign.center,
           ),
@@ -215,7 +232,9 @@ class AttachmentPreviewDialog extends StatelessWidget {
             '${attachment.formattedSize} • ${attachment.mimeType}',
             style: TextStyle(
               fontSize: 12,
-              color: isDark ? AppColors.darkTextTertiary : AppColors.lightTextTertiary,
+              color: isDark
+                  ? AppColors.darkTextTertiary
+                  : AppColors.lightTextTertiary,
             ),
           ),
         ],
@@ -228,7 +247,8 @@ class AttachmentPreviewDialog extends StatelessWidget {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Remove Attachment?'),
-        content: Text('Are you sure you want to remove "${attachment.originalName}"?'),
+        content: Text(
+            'Are you sure you want to remove "${attachment.originalName}"?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
@@ -242,7 +262,8 @@ class AttachmentPreviewDialog extends StatelessWidget {
             },
             child: const Text(
               'Remove',
-              style: TextStyle(color: AppColors.danger, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                  color: AppColors.danger, fontWeight: FontWeight.bold),
             ),
           ),
         ],

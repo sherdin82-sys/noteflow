@@ -14,7 +14,8 @@ export '../../shared/models/attachment_entity.dart';
 
 abstract class NoteRepository {
   /// Stream of all active or archived notes
-  Stream<List<NoteEntity>> watchNotes({bool includeArchived = false, String? folderId});
+  Stream<List<NoteEntity>> watchNotes(
+      {bool includeArchived = false, String? folderId});
 
   /// Get note by ID
   Future<NoteEntity?> getNoteById(String id);
@@ -71,7 +72,8 @@ abstract class NoteRepository {
   Future<void> deleteVoiceRecording(String recordingId);
 
   /// Reorder voice recordings by updating their sort orders
-  Future<void> reorderVoiceRecordings(String voiceNoteId, List<String> orderedIds);
+  Future<void> reorderVoiceRecordings(
+      String voiceNoteId, List<String> orderedIds);
 
   /// Toggle the completion state of a voice recording (Checklist mode)
   Future<void> toggleVoiceRecordingCompletion(String recordingId);
@@ -110,7 +112,8 @@ abstract class NoteRepository {
   Future<ReminderEntity?> getReminderForNote(String noteId);
 
   /// Get active reminder for an individual checklist item
-  Future<ReminderEntity?> getReminderForChecklistItem(String noteId, String checklistItemId);
+  Future<ReminderEntity?> getReminderForChecklistItem(
+      String noteId, String checklistItemId);
 
   /// Get active reminder for an individual voice recording
   Future<ReminderEntity?> getReminderForVoiceRecording(String voiceRecordingId);
@@ -153,4 +156,7 @@ abstract class NoteRepository {
     String? mimeType,
     String Function()? idGenerator,
   });
+
+  /// Get documents base directory path
+  Future<String?> getBaseDirectory();
 }

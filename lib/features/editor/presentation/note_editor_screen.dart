@@ -70,7 +70,8 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
     super.initState();
     final now = DateTime.now();
 
-    _showAudioRecorder = widget.isVoiceNote || (widget.initialNote?.hasAudio ?? false);
+    _showAudioRecorder =
+        widget.isVoiceNote || (widget.initialNote?.hasAudio ?? false);
 
     if (widget.initialNote != null) {
       _currentNote = widget.initialNote!;
@@ -88,7 +89,8 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
       _initExistingNote();
     }
 
-    _titleController = TextEditingController(text: _isLoading ? '' : _currentNote.title);
+    _titleController =
+        TextEditingController(text: _isLoading ? '' : _currentNote.title);
 
     // Auto-focus Body Editor for new rich text notes to immediately open soft keyboard (skip for voice notes to avoid blocking audio recorder)
     if (!_isNotePersisted && !widget.isChecklist && !widget.isVoiceNote) {
@@ -102,7 +104,9 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
 
         // When navigating from a sheet/route transition, re-verify focus once transition completes
         final modalRoute = ModalRoute.of(context);
-        if (modalRoute != null && modalRoute.animation != null && !modalRoute.animation!.isCompleted) {
+        if (modalRoute != null &&
+            modalRoute.animation != null &&
+            !modalRoute.animation!.isCompleted) {
           void onRouteCompleted(AnimationStatus status) {
             if (status == AnimationStatus.completed) {
               modalRoute.animation?.removeStatusListener(onRouteCompleted);
@@ -115,6 +119,7 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
               }
             }
           }
+
           modalRoute.animation!.addStatusListener(onRouteCompleted);
         }
       });
@@ -127,11 +132,13 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
       try {
         deltaOps = jsonDecode(rawContent) as List<dynamic>;
       } catch (_) {
-        deltaOps = jsonDecode(NoteHelper.markdownToDeltaJson(rawContent)) as List<dynamic>;
+        deltaOps = jsonDecode(NoteHelper.markdownToDeltaJson(rawContent))
+            as List<dynamic>;
       }
     } else {
       // Legacy markdown or plain text note: explicitly convert to native Quill Delta
-      deltaOps = jsonDecode(NoteHelper.markdownToDeltaJson(rawContent)) as List<dynamic>;
+      deltaOps = jsonDecode(NoteHelper.markdownToDeltaJson(rawContent))
+          as List<dynamic>;
     }
 
     try {
@@ -237,9 +244,14 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
     final plainText = NoteHelper.extractPlainText(contentToSave).trim();
 
     // If this is a new note and both title and content are blank, check audio and attachments
-    final attachments = await ref.read(noteRepositoryProvider).getAttachments(_currentNote.id);
+    final attachments =
+        await ref.read(noteRepositoryProvider).getAttachments(_currentNote.id);
     final hasAttachments = attachments.isNotEmpty;
-    if (!_isNotePersisted && title.isEmpty && plainText.isEmpty && !_currentNote.hasAudio && !hasAttachments) {
+    if (!_isNotePersisted &&
+        title.isEmpty &&
+        plainText.isEmpty &&
+        !_currentNote.hasAudio &&
+        !hasAttachments) {
       return;
     }
 
@@ -293,7 +305,8 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
 
       // Inform user if any file failed or exceeded size limit
       if (result.failedItems.isNotEmpty && mounted) {
-        final oversized = result.failedItems.where((f) => f.isSizeLimitExceeded).length;
+        final oversized =
+            result.failedItems.where((f) => f.isSizeLimitExceeded).length;
         final msg = oversized > 0
             ? '$oversized file(s) exceeded the 25 MB size limit and were skipped.'
             : 'Some files could not be imported.';
@@ -321,16 +334,49 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
     await repo.deleteAttachment(attachment.id);
   }
 
+  void _confirmDeleteAttachment(AttachmentEntity attachment) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
+        ),
+        title: const Text('Remove Attachment?'),
+        content: Text(
+            'Are you sure you want to remove "${attachment.originalName}"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.of(dialogContext).pop();
+              await _deleteAttachment(attachment);
+            },
+            child: const Text(
+              'Remove',
+              style: TextStyle(
+                  color: AppColors.danger, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showFolderSelector(List<FolderEntity> folders) {
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(AppConstants.radiusLarge)),
+        borderRadius: BorderRadius.vertical(
+            top: Radius.circular(AppConstants.radiusLarge)),
       ),
       builder: (bottomContext) {
         return SafeArea(
           child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: AppConstants.paddingMedium),
+            padding: const EdgeInsets.symmetric(
+                vertical: AppConstants.paddingMedium),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -365,7 +411,8 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                         : null,
                     onTap: () {
                       setState(() {
-                        _currentNote = _currentNote.copyWith(folderId: folder.id);
+                        _currentNote =
+                            _currentNote.copyWith(folderId: folder.id);
                       });
                       _triggerAutoSave();
                       Navigator.pop(bottomContext);
@@ -401,7 +448,8 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(AppConstants.radiusLarge)),
+        borderRadius: BorderRadius.vertical(
+            top: Radius.circular(AppConstants.radiusLarge)),
       ),
       builder: (_) => NoteStatsModal(note: _currentNote),
     );
@@ -418,7 +466,8 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
 
   Future<void> _archiveCurrentNote() async {
     _autoSaveTimer?.cancel();
-    _isDeleted = true; // Mark true so PopScope/dispose will not re-save unarchived state
+    _isDeleted =
+        true; // Mark true so PopScope/dispose will not re-save unarchived state
 
     final title = _titleController.text.trim();
     final String contentToSave;
@@ -431,7 +480,10 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
     final plainText = NoteHelper.extractPlainText(contentToSave).trim();
 
     // If new note and completely empty (and no audio), discard without saving to archive
-    if (!_isNotePersisted && title.isEmpty && plainText.isEmpty && !_currentNote.hasAudio) {
+    if (!_isNotePersisted &&
+        title.isEmpty &&
+        plainText.isEmpty &&
+        !_currentNote.hasAudio) {
       if (mounted) Navigator.of(context).pop();
       return;
     }
@@ -458,7 +510,9 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
   void _confirmDelete() {
     final noteTitle = _titleController.text.trim().isNotEmpty
         ? _titleController.text.trim()
-        : (_currentNote.title.isNotEmpty ? _currentNote.title : 'Untitled Note');
+        : (_currentNote.title.isNotEmpty
+            ? _currentNote.title
+            : 'Untitled Note');
 
     showDialog(
       context: context,
@@ -467,7 +521,8 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
           borderRadius: BorderRadius.circular(AppConstants.radiusMedium),
         ),
         title: const Text('Delete Note'),
-        content: Text('Are you sure you want to permanently delete "$noteTitle"?'),
+        content:
+            Text('Are you sure you want to permanently delete "$noteTitle"?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
@@ -481,7 +536,9 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
               _isDeleted = true;
               _autoSaveTimer?.cancel();
               if (_isNotePersisted) {
-                await ref.read(noteRepositoryProvider).deleteNote(_currentNote.id);
+                await ref
+                    .read(noteRepositoryProvider)
+                    .deleteNote(_currentNote.id);
               }
               if (dialogContext.mounted) Navigator.pop(dialogContext);
               if (mounted) {
@@ -507,21 +564,26 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
     }
 
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final colorList = isDark ? AppColors.darkNoteColors : AppColors.lightNoteColors;
+    final colorList =
+        isDark ? AppColors.darkNoteColors : AppColors.lightNoteColors;
     final backgroundColor = _currentNote.colorIndex < colorList.length
         ? colorList[_currentNote.colorIndex]
         : (isDark ? AppColors.darkBackground : AppColors.lightBackground);
 
-    final primaryTextColor = isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
-    final secondaryTextColor = isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
+    final primaryTextColor =
+        isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
+    final secondaryTextColor =
+        isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary;
 
     final foldersAsync = ref.watch(foldersStreamProvider);
     final folders = foldersAsync.value ?? [];
-    final currentFolder = folders.where((f) => f.id == _currentNote.folderId).firstOrNull;
+    final currentFolder =
+        folders.where((f) => f.id == _currentNote.folderId).firstOrNull;
 
     final tagsAsync = ref.watch(tagsStreamProvider);
     final allTags = tagsAsync.value ?? [];
-    final noteTags = allTags.where((t) => _currentNote.tagIds.contains(t.id)).toList();
+    final noteTags =
+        allTags.where((t) => _currentNote.tagIds.contains(t.id)).toList();
 
     return PopScope(
       canPop: false,
@@ -569,54 +631,70 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
           actions: [
             IconButton(
               icon: Icon(
-                _currentNote.isFavorite ? Icons.star_rounded : Icons.star_outline_rounded,
-                color: _currentNote.isFavorite ? Colors.amber : secondaryTextColor,
+                _currentNote.isFavorite
+                    ? Icons.star_rounded
+                    : Icons.star_outline_rounded,
+                color:
+                    _currentNote.isFavorite ? Colors.amber : secondaryTextColor,
               ),
-              tooltip: _currentNote.isFavorite ? 'Unfavorite Note' : 'Favorite Note',
+              tooltip:
+                  _currentNote.isFavorite ? 'Unfavorite Note' : 'Favorite Note',
               onPressed: () {
                 setState(() {
-                  _currentNote = _currentNote.copyWith(isFavorite: !_currentNote.isFavorite);
+                  _currentNote = _currentNote.copyWith(
+                      isFavorite: !_currentNote.isFavorite);
                 });
                 _triggerAutoSave();
               },
             ),
-
             IconButton(
               icon: Icon(
-                _currentNote.tagIds.isNotEmpty ? Icons.label_rounded : Icons.label_outline_rounded,
-                color: _currentNote.tagIds.isNotEmpty ? AppColors.primary : secondaryTextColor,
+                _currentNote.tagIds.isNotEmpty
+                    ? Icons.label_rounded
+                    : Icons.label_outline_rounded,
+                color: _currentNote.tagIds.isNotEmpty
+                    ? AppColors.primary
+                    : secondaryTextColor,
               ),
               tooltip: 'Assign Tags',
               onPressed: _showTagSelector,
             ),
-
             IconButton(
               icon: Icon(
-                _currentNote.isPinned ? Icons.push_pin : Icons.push_pin_outlined,
-                color: _currentNote.isPinned ? AppColors.pinColor : secondaryTextColor,
+                _currentNote.isPinned
+                    ? Icons.push_pin
+                    : Icons.push_pin_outlined,
+                color: _currentNote.isPinned
+                    ? AppColors.pinColor
+                    : secondaryTextColor,
               ),
               tooltip: _currentNote.isPinned ? 'Unpin Note' : 'Pin Note',
               onPressed: () {
                 setState(() {
-                  _currentNote = _currentNote.copyWith(isPinned: !_currentNote.isPinned);
+                  _currentNote =
+                      _currentNote.copyWith(isPinned: !_currentNote.isPinned);
                 });
                 _triggerAutoSave();
               },
             ),
-
             IconButton(
               icon: Icon(
-                _currentNote.hasAudio ? Icons.mic_rounded : Icons.mic_none_rounded,
-                color: _currentNote.hasAudio ? AppColors.primary : secondaryTextColor,
+                _currentNote.hasAudio
+                    ? Icons.mic_rounded
+                    : Icons.mic_none_rounded,
+                color: _currentNote.hasAudio
+                    ? AppColors.primary
+                    : secondaryTextColor,
               ),
-              tooltip: _currentNote.hasAudio ? 'Voice Memo Attached' : 'Record Voice Memo',
+              tooltip: _currentNote.hasAudio
+                  ? 'Voice Memo Attached'
+                  : 'Record Voice Memo',
               onPressed: () {
                 setState(() {
                   _showAudioRecorder = true;
                 });
               },
             ),
-
             IconButton(
               icon: Icon(
                 Icons.attach_file_rounded,
@@ -625,7 +703,6 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
               tooltip: 'Add Attachment',
               onPressed: _pickAttachments,
             ),
-
             Consumer(
               builder: (context, ref, _) {
                 final rem = ref.watch(noteReminderProvider(_currentNote.id));
@@ -633,7 +710,9 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
 
                 return IconButton(
                   icon: Icon(
-                    hasReminder ? Icons.alarm_on_rounded : Icons.alarm_add_rounded,
+                    hasReminder
+                        ? Icons.alarm_on_rounded
+                        : Icons.alarm_add_rounded,
                     color: hasReminder ? AppColors.primary : secondaryTextColor,
                   ),
                   tooltip: hasReminder ? 'Edit Reminder' : 'Set Reminder',
@@ -643,7 +722,9 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                     final title = _titleController.text.trim().isNotEmpty
                         ? _titleController.text.trim()
                         : 'Note Reminder';
-                    final preview = NoteHelper.extractPlainText(_currentNote.content).trim();
+                    final preview =
+                        NoteHelper.extractPlainText(_currentNote.content)
+                            .trim();
                     ReminderBottomSheet.show(
                       context: context,
                       noteId: _currentNote.id,
@@ -655,7 +736,6 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                 );
               },
             ),
-
             PopupMenuButton<String>(
               icon: Icon(Icons.more_vert, color: secondaryTextColor),
               shape: RoundedRectangleBorder(
@@ -665,7 +745,8 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                 switch (val) {
                   case 'favorite':
                     setState(() {
-                      _currentNote = _currentNote.copyWith(isFavorite: !_currentNote.isFavorite);
+                      _currentNote = _currentNote.copyWith(
+                          isFavorite: !_currentNote.isFavorite);
                     });
                     _triggerAutoSave();
                     break;
@@ -684,9 +765,11 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                     final newIsChecklist = !_currentNote.isChecklist;
                     if (newIsChecklist) {
                       // Switching to checklist: sync latest Quill delta first
-                      final currentDelta = jsonEncode(_quillController.document.toDelta().toJson());
+                      final currentDelta = jsonEncode(
+                          _quillController.document.toDelta().toJson());
                       setState(() {
-                        _currentNote = _currentNote.copyWith(isChecklist: true, content: currentDelta);
+                        _currentNote = _currentNote.copyWith(
+                            isChecklist: true, content: currentDelta);
                       });
                     } else {
                       // Switching to rich text: reinitialize Quill with current checklist content
@@ -694,7 +777,8 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                       _quillController.dispose();
                       _initQuillController(_currentNote.content);
                       setState(() {
-                        _currentNote = _currentNote.copyWith(isChecklist: false);
+                        _currentNote =
+                            _currentNote.copyWith(isChecklist: false);
                       });
                     }
                     _triggerAutoSave();
@@ -722,12 +806,16 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                   child: Row(
                     children: [
                       Icon(
-                        _currentNote.isFavorite ? Icons.star_rounded : Icons.star_outline_rounded,
+                        _currentNote.isFavorite
+                            ? Icons.star_rounded
+                            : Icons.star_outline_rounded,
                         size: 18,
                         color: _currentNote.isFavorite ? Colors.amber : null,
                       ),
                       const SizedBox(width: 10),
-                      Text(_currentNote.isFavorite ? 'Remove from Favorites' : 'Add to Favorites'),
+                      Text(_currentNote.isFavorite
+                          ? 'Remove from Favorites'
+                          : 'Add to Favorites'),
                     ],
                   ),
                 ),
@@ -756,12 +844,16 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                   child: Row(
                     children: [
                       Icon(
-                        _currentNote.hasAudio ? Icons.mic_rounded : Icons.mic_none_rounded,
+                        _currentNote.hasAudio
+                            ? Icons.mic_rounded
+                            : Icons.mic_none_rounded,
                         size: 18,
                         color: _currentNote.hasAudio ? AppColors.primary : null,
                       ),
                       const SizedBox(width: 10),
-                      Text(_currentNote.hasAudio ? 'Voice Memo Attached' : 'Record Voice Memo'),
+                      Text(_currentNote.hasAudio
+                          ? 'Voice Memo Attached'
+                          : 'Record Voice Memo'),
                     ],
                   ),
                 ),
@@ -770,11 +862,15 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                   child: Row(
                     children: [
                       Icon(
-                        _currentNote.isChecklist ? Icons.notes_rounded : Icons.checklist_rounded,
+                        _currentNote.isChecklist
+                            ? Icons.notes_rounded
+                            : Icons.checklist_rounded,
                         size: 18,
                       ),
                       const SizedBox(width: 10),
-                      Text(_currentNote.isChecklist ? 'Convert to Rich Text' : 'Convert to Checklist'),
+                      Text(_currentNote.isChecklist
+                          ? 'Convert to Rich Text'
+                          : 'Convert to Checklist'),
                     ],
                   ),
                 ),
@@ -823,9 +919,11 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                   value: 'delete',
                   child: Row(
                     children: [
-                      Icon(Icons.delete_outline, size: 18, color: AppColors.danger),
+                      Icon(Icons.delete_outline,
+                          size: 18, color: AppColors.danger),
                       SizedBox(width: 10),
-                      Text('Delete Note', style: TextStyle(color: AppColors.danger)),
+                      Text('Delete Note',
+                          style: TextStyle(color: AppColors.danger)),
                     ],
                   ),
                 ),
@@ -833,12 +931,12 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
             ),
           ],
         ),
-
         body: Column(
           children: [
             Expanded(
               child: ListView(
-                padding: const EdgeInsets.symmetric(horizontal: AppConstants.paddingMedium),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: AppConstants.paddingMedium),
                 children: [
                   if (currentFolder != null || noteTags.isNotEmpty) ...[
                     Align(
@@ -850,7 +948,8 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                         children: [
                           if (currentFolder != null)
                             ActionChip(
-                              avatar: const Icon(Icons.folder_outlined, size: 14),
+                              avatar:
+                                  const Icon(Icons.folder_outlined, size: 14),
                               label: Text(currentFolder.name),
                               visualDensity: VisualDensity.compact,
                               onPressed: () => _showFolderSelector(folders),
@@ -861,7 +960,9 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                               onDeleted: () {
                                 setState(() {
                                   _currentNote = _currentNote.copyWith(
-                                    tagIds: _currentNote.tagIds.where((id) => id != tag.id).toList(),
+                                    tagIds: _currentNote.tagIds
+                                        .where((id) => id != tag.id)
+                                        .toList(),
                                   );
                                 });
                                 _triggerAutoSave();
@@ -869,7 +970,8 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                             ),
                           ActionChip(
                             avatar: const Icon(Icons.add, size: 14),
-                            label: const Text('Add Tag', style: TextStyle(fontSize: 12)),
+                            label: const Text('Add Tag',
+                                style: TextStyle(fontSize: 12)),
                             visualDensity: VisualDensity.compact,
                             onPressed: _showTagSelector,
                           ),
@@ -880,11 +982,14 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                   ],
 
                   // Voice Note Player / Recorder Widget (Hybrid Note Header)
-                  if (_currentNote.hasAudio || _showAudioRecorder || widget.isVoiceNote) ...[
+                  if (_currentNote.hasAudio ||
+                      _showAudioRecorder ||
+                      widget.isVoiceNote) ...[
                     VoiceNoteWidget(
                       audioPath: _currentNote.audioPath,
                       audioDurationMs: _currentNote.audioDurationMs,
-                      autoStartRecording: !_isNotePersisted && widget.isVoiceNote,
+                      autoStartRecording:
+                          !_isNotePersisted && widget.isVoiceNote,
                       onAudioRecorded: (data) {
                         setState(() {
                           _currentNote = _currentNote.copyWith(
@@ -896,7 +1001,8 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                       },
                       onAudioDeleted: () {
                         setState(() {
-                          _currentNote = _currentNote.copyWith(clearAudio: true);
+                          _currentNote =
+                              _currentNote.copyWith(clearAudio: true);
                           _showAudioRecorder = false;
                         });
                         _triggerAutoSave();
@@ -919,7 +1025,9 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                     decoration: InputDecoration(
                       hintText: 'Title',
                       hintStyle: AppTypography.displayMedium(
-                        isDark ? AppColors.darkTextTertiary : AppColors.lightTextTertiary,
+                        isDark
+                            ? AppColors.darkTextTertiary
+                            : AppColors.lightTextTertiary,
                       ),
                       border: InputBorder.none,
                       enabledBorder: InputBorder.none,
@@ -935,7 +1043,8 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                   // Active Note Reminder Chip
                   Consumer(
                     builder: (context, ref, _) {
-                      final rem = ref.watch(noteReminderProvider(_currentNote.id));
+                      final rem =
+                          ref.watch(noteReminderProvider(_currentNote.id));
                       if (rem == null) return const SizedBox.shrink();
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 12),
@@ -944,10 +1053,13 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                           child: ReminderChip(
                             reminder: rem,
                             onTap: () {
-                              final title = _titleController.text.trim().isNotEmpty
-                                  ? _titleController.text.trim()
-                                  : 'Note Reminder';
-                              final preview = NoteHelper.extractPlainText(_currentNote.content).trim();
+                              final title =
+                                  _titleController.text.trim().isNotEmpty
+                                      ? _titleController.text.trim()
+                                      : 'Note Reminder';
+                              final preview = NoteHelper.extractPlainText(
+                                      _currentNote.content)
+                                  .trim();
                               ReminderBottomSheet.show(
                                 context: context,
                                 noteId: _currentNote.id,
@@ -957,7 +1069,9 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                               );
                             },
                             onDelete: () {
-                              ref.read(reminderServiceProvider).deleteReminder(rem.id);
+                              ref
+                                  .read(reminderServiceProvider)
+                                  .deleteReminder(rem.id);
                             },
                           ),
                         ),
@@ -978,11 +1092,7 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                       );
                     },
                     onAttachmentDelete: (attachment) {
-                      AttachmentPreviewDialog.show(
-                        context: context,
-                        attachment: attachment,
-                        onDelete: () => _deleteAttachment(attachment),
-                      );
+                      _confirmDeleteAttachment(attachment);
                     },
                   ),
 
@@ -990,13 +1100,17 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                   if (_currentNote.isChecklist)
                     ChecklistView(
                       noteId: _currentNote.id,
-                      rawContent: NoteHelper.formatForEditor(_currentNote.content),
+                      rawContent:
+                          NoteHelper.formatForEditor(_currentNote.content),
                       autoFocus: !_isNotePersisted &&
                           (_currentNote.title.isEmpty &&
-                              NoteHelper.extractPlainText(_currentNote.content).isEmpty),
+                              NoteHelper.extractPlainText(_currentNote.content)
+                                  .isEmpty),
                       onContentChanged: (newText) {
-                        final deltaJson = NoteHelper.markdownToDeltaJson(newText);
-                        _currentNote = _currentNote.copyWith(content: deltaJson);
+                        final deltaJson =
+                            NoteHelper.markdownToDeltaJson(newText);
+                        _currentNote =
+                            _currentNote.copyWith(content: deltaJson);
                         try {
                           final ops = jsonDecode(deltaJson) as List<dynamic>;
                           _quillController.removeListener(_onQuillChanged);
@@ -1014,7 +1128,8 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                         focusNode: _editorFocusNode,
                         scrollController: _editorScrollController,
                         config: QuillEditorConfig(
-                          placeholder: 'Start writing thoughts, tasks, or format with toolbar...',
+                          placeholder:
+                              'Start writing thoughts, tasks, or format with toolbar...',
                           padding: EdgeInsets.zero,
                           autoFocus: !_isNotePersisted && !widget.isChecklist,
                           scrollable: false,
@@ -1032,7 +1147,8 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
             // Bottom Controls Bar: auto-collapses color tint when keyboard is visible to maximize editor canvas
             Builder(
               builder: (context) {
-                final isKeyboardOpen = MediaQuery.of(context).viewInsets.bottom > 0;
+                final isKeyboardOpen =
+                    MediaQuery.of(context).viewInsets.bottom > 0;
                 return SafeArea(
                   top: false,
                   child: Column(
@@ -1043,7 +1159,8 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                           selectedIndex: _currentNote.colorIndex,
                           onSelectColor: (idx) {
                             setState(() {
-                              _currentNote = _currentNote.copyWith(colorIndex: idx);
+                              _currentNote =
+                                  _currentNote.copyWith(colorIndex: idx);
                             });
                             _triggerAutoSave();
                           },

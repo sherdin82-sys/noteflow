@@ -36,6 +36,9 @@ class AttachmentSection extends ConsumerWidget {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
+    final effectiveBasePath =
+        documentsBasePath ?? ref.watch(documentsBasePathProvider).value;
+
     return Padding(
       padding: const EdgeInsets.only(top: 6, bottom: 10),
       child: Column(
@@ -65,8 +68,9 @@ class AttachmentSection extends ConsumerWidget {
                 if (index < attachments.length) {
                   final attachment = attachments[index];
                   return AttachmentTile(
+                    key: ValueKey('attachment_${attachment.id}'),
                     attachment: attachment,
-                    documentsBasePath: documentsBasePath,
+                    documentsBasePath: effectiveBasePath,
                     onTap: () => onAttachmentTap?.call(attachment),
                     onDelete: () => onAttachmentDelete?.call(attachment),
                   );
@@ -83,9 +87,8 @@ class AttachmentSection extends ConsumerWidget {
   }
 
   Widget _buildAddButton(BuildContext context, bool isDark) {
-    final borderColor = isDark
-        ? AppColors.darkBorderSubtle
-        : AppColors.lightBorderSubtle;
+    final borderColor =
+        isDark ? AppColors.darkBorderSubtle : AppColors.lightBorderSubtle;
 
     return Material(
       color: Colors.transparent,
@@ -108,7 +111,9 @@ class AttachmentSection extends ConsumerWidget {
               Icon(
                 Icons.add_rounded,
                 size: 24,
-                color: isDark ? AppColors.darkTextSecondary : AppColors.lightTextSecondary,
+                color: isDark
+                    ? AppColors.darkTextSecondary
+                    : AppColors.lightTextSecondary,
               ),
               const SizedBox(height: 2),
               Text(
@@ -116,7 +121,9 @@ class AttachmentSection extends ConsumerWidget {
                 style: TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.w600,
-                  color: isDark ? AppColors.darkTextTertiary : AppColors.lightTextTertiary,
+                  color: isDark
+                      ? AppColors.darkTextTertiary
+                      : AppColors.lightTextTertiary,
                 ),
               ),
             ],
