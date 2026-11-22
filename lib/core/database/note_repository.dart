@@ -144,4 +144,13 @@ abstract class NoteRepository {
 
   /// Delete all attachments belonging to a specific note
   Future<void> deleteAttachmentsForNote(String noteId);
+
+  /// Atomically commits a staged attachment and persists its metadata
+  Future<AttachmentEntity?> importAndSaveAttachment({
+    required String stagingPath,
+    required String originalName,
+    required String noteId,
+    String? mimeType,
+    String Function()? idGenerator,
+  });
 }

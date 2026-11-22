@@ -277,16 +277,18 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
         return;
       }
 
-      final repo = ref.read(noteRepositoryProvider) as LocalNoteRepository;
+      final repo = ref.read(noteRepositoryProvider);
 
       // Import successful files
       for (final item in result.successfulItems) {
-        await repo.importAndSaveAttachment(
-          stagingPath: item.stagingPath,
-          originalName: item.originalName,
-          noteId: _currentNote.id,
-          mimeType: item.mimeType,
-        );
+        if (item.stagingPath != null) {
+          await repo.importAndSaveAttachment(
+            stagingPath: item.stagingPath!,
+            originalName: item.originalName,
+            noteId: _currentNote.id,
+            mimeType: item.mimeType,
+          );
+        }
       }
 
       // Inform user if any file failed or exceeded size limit

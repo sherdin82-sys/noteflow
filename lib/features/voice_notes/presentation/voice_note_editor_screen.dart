@@ -20,7 +20,7 @@ import '../../reminders/presentation/widgets/reminder_chip.dart';
 import '../../../../shared/models/attachment_entity.dart';
 import '../../attachments/presentation/widgets/attachment_section.dart';
 import '../../attachments/presentation/widgets/attachment_preview_dialog.dart';
-import '../../attachments/services/attachment_picker_service.dart';
+import '../../attachments/services/attachment_native_bridge.dart';
 
 class VoiceNoteEditorScreen extends ConsumerStatefulWidget {
   final String? noteId;
@@ -411,30 +411,29 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
       await ref.read(noteRepositoryProvider).saveNote(noteToPersist);
     }
 
-    final picker = AttachmentPickerService();
-    final source = await picker.showSourceSelectionModal(context);
-    if (source == null || !mounted) return;
-
     setState(() => _isImportingAttachments = true);
     try {
-      final stagedFiles = await picker.pickAndStageFiles(source: source);
-      if (stagedFiles.isEmpty || !mounted) return;
+      final bridge = AttachmentNativeBridge();
+      final result = await bridge.pickAttachments();
+      if (result.isCancelled) return;
 
       final repo = ref.read(noteRepositoryProvider);
       int successCount = 0;
-      for (final staged in stagedFiles) {
-        try {
-          final saved = await repo.importAndSaveAttachment(
-            stagingPath: staged.stagingPath,
-            originalName: staged.originalDisplayName,
-            noteId: _currentNote.id,
-            mimeType: staged.mimeType,
-          );
-          if (saved != null) {
-            successCount++;
+      for (final item in result.successfulItems) {
+        if (item.stagingPath != null) {
+          try {
+            final saved = await repo.importAndSaveAttachment(
+              stagingPath: item.stagingPath!,
+              originalName: item.originalName,
+              noteId: _currentNote.id,
+              mimeType: item.mimeType,
+            );
+            if (saved != null) {
+              successCount++;
+            }
+          } catch (e) {
+            debugPrint('Failed to save attachment ${item.originalName}: $e');
           }
-        } catch (e) {
-          debugPrint('Failed to save attachment ${staged.originalDisplayName}: $e');
         }
       }
 
@@ -444,6 +443,16 @@ class _VoiceNoteEditorScreenState extends ConsumerState<VoiceNoteEditorScreen> {
             content: Text('Added $successCount ${successCount == 1 ? 'attachment' : 'attachments'}'),
             duration: const Duration(seconds: 2),
           ),
+        );
+      }
+
+      if (result.failedItems.isNotEmpty && mounted) {
+        final oversized = result.failedItems.where((f) => f.isSizeLimitExceeded).length;
+        final msg = oversized > 0
+            ? '$oversized file(s) exceeded the 25 MB size limit and were skipped.'
+            : 'Some files could not be imported.';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(msg)),
         );
       }
     } catch (e) {

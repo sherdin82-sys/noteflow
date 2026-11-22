@@ -259,7 +259,7 @@ class RestoreService {
       }
 
       // Check 10: CRC-32 verification
-      if (entry.crc32 != null && entry.crc32 != 0 && entry.content != null) {
+      if (entry.crc32 != 0 && entry.content != null) {
         final calculatedCrc = getCrc32(entry.content as List<int>);
         if (calculatedCrc != entry.crc32) {
           throw FormatException('CRC-32 checksum mismatch for entry: $name');
@@ -401,7 +401,7 @@ class RestoreService {
         final entry = archive.findFile(entryName) ??
             archive.findFile('attachments/${att.noteId}/$safeTargetName');
 
-        if (entry != null && entry.content != null) {
+        if (entry != null) {
           final contentBytes = entry.content as List<int>;
           await attTargetFile.writeAsBytes(contentBytes, flush: true);
         }
@@ -413,7 +413,7 @@ class RestoreService {
         final entryName2 = 'voice_notes/${rec.voiceNoteId}/${rec.id}.$ext';
         final entry = archive.findFile(entryName1) ?? archive.findFile(entryName2);
 
-        if (entry != null && entry.content != null) {
+        if (entry != null) {
           final recTargetDir = Directory('${stagingVoiceDir.path}/${rec.voiceNoteId}');
           if (!await recTargetDir.exists()) await recTargetDir.create(recursive: true);
           final recTargetFile = File('${recTargetDir.path}/${rec.id}.$ext');

@@ -1,7 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/database/database_provider.dart';
 import '../../../shared/models/attachment_entity.dart';
-import '../services/attachment_picker_service.dart';
 import '../services/attachment_native_bridge.dart';
 
 /// Provider for the singleton attachment picker service

@@ -7083,7 +7083,7 @@ Future<void> main() async {
       requestId: 'req-dev05-oversized',
       isCancelled: false,
       items: [
-        const StagedAttachment(
+        StagedAttachment(
           stagingPath: '',
           originalName: 'Huge_Database_Dump.iso',
           fileSizeBytes: 28 * 1024 * 1024,
@@ -7245,7 +7245,7 @@ Future<void> main() async {
     );
     expect(dev11Backup.existsSync(), 'Setup: Backup archive created');
 
-    final dev11RestoreDir = Directory('${s40BasePath}/restore_clean')..createSync(recursive: true);
+    final dev11RestoreDir = Directory('$s40BasePath/restore_clean')..createSync(recursive: true);
     final dev11RestoreRepo = LocalNoteRepository(
       seedDemoData: false,
       enableDiskPersistence: true,
