@@ -159,4 +159,10 @@ abstract class NoteRepository {
 
   /// Get documents base directory path
   Future<String?> getBaseDirectory();
+
+  /// Whether Safe Data Recovery Mode is currently active due to unreadable data
+  bool get isDataRecoveryMode => false;
+
+  /// Human-readable explanation when in Safe Data Recovery Mode
+  String? get dataRecoveryError => null;
 }

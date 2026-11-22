@@ -4187,7 +4187,7 @@ Future<void> main() async {
 
   // 23. Missed Reminder 24-Hour Grace Window & Anti-Flood Bundling (Test 29.23)
   final nowBoot = DateTime.now();
-  final graceWindowDuration = const Duration(hours: 24);
+  const graceWindowDuration = Duration(hours: 24);
 
   // 1. One-time reminder expired within 24h grace window (2 hours ago)
   final recentExpiredRem = ReminderEntity(
@@ -4386,7 +4386,7 @@ Future<void> main() async {
   );
 
   // Timezone Floating Wall-Clock Preservation Verification
-  final wallClockIso = '2026-11-25T09:00:00';
+  const wallClockIso = '2026-11-25T09:00:00';
   final parsedLocal = DateTime.parse(wallClockIso);
   expect(
     parsedLocal.hour == 9 && parsedLocal.minute == 0,
