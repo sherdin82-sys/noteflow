@@ -1,0 +1,11 @@
+# Example Android Release Signing Properties
+# To configure local release signing, copy this file to 'key.properties' in the android/ directory:
+#   cp android/key.properties.example android/key.properties
+# Then replace the placeholder values below with your local keystore credentials.
+#
+# NOTE: 'key.properties' is ignored by Git and must NEVER be committed to version control.
+
+storePassword=your_keystore_password_here
+keyPassword=your_key_password_here
+keyAlias=your_key_alias_here
+storeFile=/path/to/your/release-keystore.jks

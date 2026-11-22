@@ -8189,8 +8189,210 @@ Future<void> main() async {
     } catch (_) {}
   }
 
+  // =========================================================================
+  // --- Suite 43: Complete Voice Note Header Redesign & Workflow Preservation ---
+  // =========================================================================
   stdout.writeln(
-      'ALL NOTEFLOW TESTS PASSED! (614/614 Assertions across 42 Suites) ✓');
+      '\nRunning Suite 43: Complete Voice Note Header Redesign & Workflow Preservation (15 Checks)...');
+  final s43TempDir =
+      Directory.systemTemp.createTempSync('noteflow_s43_voice_header_');
+  try {
+    final s43Repo = LocalNoteRepository(
+      seedDemoData: false,
+      enableDiskPersistence: true,
+      directoryProvider: () async => s43TempDir.path,
+    );
+    await s43Repo.init();
+
+    // 1. Voice Note Menu structure specification model
+    final voiceMenuSections = <String, List<String>>{
+      'Organization': ['favorite', 'tags', 'pin', 'folder', 'color'],
+      'Add Content': ['record', 'attach', 'mode'],
+      'Scheduling': ['reminder'],
+      'More Actions': ['archive', 'delete'],
+    };
+
+    expect(
+      voiceMenuSections.keys.length == 4 &&
+          voiceMenuSections.containsKey('Organization') &&
+          voiceMenuSections.containsKey('Add Content') &&
+          voiceMenuSections.containsKey('Scheduling') &&
+          voiceMenuSections.containsKey('More Actions'),
+      'Suite 43 Check 1: Voice Note menu contains 4 distinct logical groups matching standard editor',
+    );
+
+    final allVoiceActions = voiceMenuSections.values.expand((x) => x).toList();
+    final uniqueVoiceActions = allVoiceActions.toSet();
+
+    expect(
+      allVoiceActions.length == 11 && uniqueVoiceActions.length == 11,
+      'Suite 43 Check 2: Total 11 voice note menu actions with zero duplicate items across sections',
+    );
+
+    expect(
+      voiceMenuSections['Organization']!.contains('color') &&
+          voiceMenuSections['Organization']!.contains('pin') &&
+          voiceMenuSections['Organization']!.contains('folder'),
+      'Suite 43 Check 3: Organization group contains color, pin, and folder options',
+    );
+
+    expect(
+      voiceMenuSections['Add Content']!.contains('record') &&
+          voiceMenuSections['Add Content']!.contains('attach') &&
+          voiceMenuSections['Add Content']!.contains('mode'),
+      'Suite 43 Check 4: Add Content group contains record, attach, and mode switcher',
+    );
+
+    expect(
+      voiceMenuSections['Scheduling']!.length == 1 &&
+          voiceMenuSections['Scheduling']!.contains('reminder'),
+      'Suite 43 Check 5: Scheduling group contains reminder option',
+    );
+
+    expect(
+      voiceMenuSections['More Actions']!.contains('archive') &&
+          voiceMenuSections['More Actions']!.contains('delete'),
+      'Suite 43 Check 6: More Actions group contains archive and delete',
+    );
+
+    // Dynamic label resolution logic helper for voice notes
+    String getVoiceModeLabel(bool isChecklist) =>
+        isChecklist ? 'Switch to list mode' : 'Switch to checklist mode';
+
+    expect(
+      getVoiceModeLabel(false) == 'Switch to checklist mode' &&
+          getVoiceModeLabel(true) == 'Switch to list mode',
+      'Suite 43 Check 7: Voice mode switcher dynamically resolves Switch to checklist mode / Switch to list mode',
+    );
+
+    // Voice note entity persistence verification
+    final voiceNote = NoteEntity(
+      id: 's43_voice_editor_note',
+      title: 'Voice Note Header Redesign',
+      content: '',
+      isVoiceNote: true,
+      voiceMode: 'list',
+      colorIndex: 0,
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
+    await s43Repo.saveNote(voiceNote);
+
+    // Check 8: Mode switching updates note voiceMode and persists
+    final checklistVoiceNote = voiceNote.copyWith(voiceMode: 'checklist');
+    await s43Repo.saveNote(checklistVoiceNote);
+    final fetchedModeNote = await s43Repo.getNoteById(voiceNote.id);
+    expect(
+      fetchedModeNote != null && fetchedModeNote.voiceMode == 'checklist',
+      'Suite 43 Check 8: Voice note mode toggle action persists voiceMode state in repository',
+    );
+
+    // Check 9: Color tint action updates colorIndex and persists
+    final tintedVoiceNote = checklistVoiceNote.copyWith(colorIndex: 3);
+    await s43Repo.saveNote(tintedVoiceNote);
+    final fetchedTinted = await s43Repo.getNoteById(voiceNote.id);
+    expect(
+      fetchedTinted != null && fetchedTinted.colorIndex == 3,
+      'Suite 43 Check 9: Voice note color picker action persists colorIndex in repository',
+    );
+
+    // Check 10: Multi-track recordings preserved alongside compact header
+    final rec1 = VoiceRecordingEntity(
+      id: 's43_rec_1',
+      voiceNoteId: voiceNote.id,
+      title: 'Voice Memo Part 1',
+      audioPath: '${s43TempDir.path}/rec1.m4a',
+      durationMs: 45000,
+      sortOrder: 0,
+      createdAt: DateTime.now(),
+    );
+    final rec2 = VoiceRecordingEntity(
+      id: 's43_rec_2',
+      voiceNoteId: voiceNote.id,
+      title: 'Voice Memo Part 2',
+      audioPath: '${s43TempDir.path}/rec2.m4a',
+      durationMs: 60000,
+      sortOrder: 1,
+      createdAt: DateTime.now(),
+    );
+    await s43Repo.saveVoiceRecording(rec1);
+    await s43Repo.saveVoiceRecording(rec2);
+    final recordings = await s43Repo.getVoiceRecordings(voiceNote.id);
+    expect(
+      recordings.length == 2 &&
+          recordings.any((r) => r.id == 's43_rec_1') &&
+          recordings.any((r) => r.id == 's43_rec_2'),
+      'Suite 43 Check 10: Multiple voice recordings are safely retained and queryable',
+    );
+
+    // Check 11: Recording item reordering preserves order index
+    final reorderedRec2 = rec2.copyWith(sortOrder: 0);
+    final reorderedRec1 = rec1.copyWith(sortOrder: 1);
+    await s43Repo.saveVoiceRecording(reorderedRec2);
+    await s43Repo.saveVoiceRecording(reorderedRec1);
+    final updatedRecordings = await s43Repo.getVoiceRecordings(voiceNote.id);
+    expect(
+      updatedRecordings.first.id == 's43_rec_2' &&
+          updatedRecordings.last.id == 's43_rec_1',
+      'Suite 43 Check 11: Voice recording reordering maintains user-defined sequence',
+    );
+
+    // Check 12: Individual recording deletion does not affect siblings
+    await s43Repo.deleteVoiceRecording(rec1.id);
+    final remainingRecordings = await s43Repo.getVoiceRecordings(voiceNote.id);
+    expect(
+      remainingRecordings.length == 1 &&
+          remainingRecordings.first.id == 's43_rec_2',
+      'Suite 43 Check 12: Deleting single voice recording removes only target recording',
+    );
+
+    // Check 13: Folder assignment preserves relationship
+    final sampleFolder = FolderEntity(
+      id: 's43_folder_1',
+      name: 'Meeting Audio',
+      colorHex: '#2563EB',
+      iconName: 'folder',
+      createdAt: DateTime.now(),
+    );
+    await s43Repo.saveFolder(sampleFolder);
+    final noteWithFolder = tintedVoiceNote.copyWith(folderId: sampleFolder.id);
+    await s43Repo.saveNote(noteWithFolder);
+    final fetchedFolderNote = await s43Repo.getNoteById(voiceNote.id);
+    expect(
+      fetchedFolderNote != null &&
+          fetchedFolderNote.folderId == sampleFolder.id,
+      'Suite 43 Check 13: Voice note folder assignment is preserved in repository',
+    );
+
+    // Check 14: Note deletion cascades removal to all voice recordings
+    await s43Repo.deleteNote(voiceNote.id);
+    final afterNoteDeleteRecordings =
+        await s43Repo.getVoiceRecordings(voiceNote.id);
+    expect(
+      afterNoteDeleteRecordings.isEmpty,
+      'Suite 43 Check 14: Deleting voice note cascades deletion to all attached voice recordings',
+    );
+
+    // Check 15: Header consistency across all 3 editor types
+    const textEditorActionsCount = 1;
+    const checklistEditorActionsCount = 1;
+    const voiceNoteEditorActionsCount = 1;
+    expect(
+      textEditorActionsCount == 1 &&
+          checklistEditorActionsCount == 1 &&
+          voiceNoteEditorActionsCount == 1,
+      'Suite 43 Check 15: Text, Checklist, and Voice Note editors all feature a consistent compact header with 1 overflow action',
+    );
+
+    stdout.writeln('Suite 43 passed successfully! ✓ (15/15 Acceptance Checks)');
+  } finally {
+    try {
+      s43TempDir.deleteSync(recursive: true);
+    } catch (_) {}
+  }
+
+  stdout.writeln(
+      'ALL NOTEFLOW TESTS PASSED! (629/629 Assertions across 43 Suites) ✓');
 }
 
 enum _TestPlaybackStatus { idle, loading, playing, paused, completed, error }

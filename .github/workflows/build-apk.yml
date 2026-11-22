@@ -54,8 +54,59 @@ jobs:
           echo "flutter.sdk=$FLUTTER_ROOT" > android/local.properties
           echo "sdk.dir=$ANDROID_HOME" >> android/local.properties
 
+      - name: Decode Release Keystore
+        env:
+          NOTE_FLOW_KEYSTORE_BASE64: ${{ secrets.NOTE_FLOW_KEYSTORE_BASE64 }}
+        run: |
+          echo "$NOTE_FLOW_KEYSTORE_BASE64" | base64 --decode > android/release.keystore
+          if [ ! -s android/release.keystore ]; then
+            echo "::error::Keystore decoding failed or secret NOTE_FLOW_KEYSTORE_BASE64 is empty!"
+            exit 1
+          fi
+          echo "Keystore successfully decoded to android/release.keystore (size: $(wc -c < android/release.keystore) bytes)"
+
       - name: Build Android Release APK
+        env:
+          NOTE_FLOW_KEYSTORE_PATH: android/release.keystore
+          NOTE_FLOW_KEYSTORE_PASSWORD: ${{ secrets.NOTE_FLOW_KEYSTORE_PASSWORD }}
+          NOTE_FLOW_KEY_ALIAS: ${{ secrets.NOTE_FLOW_KEY_ALIAS }}
+          NOTE_FLOW_KEY_PASSWORD: ${{ secrets.NOTE_FLOW_KEY_PASSWORD }}
         run: flutter build apk --release --split-per-abi --android-skip-build-dependency-validation
+
+      - name: Verify APK Signatures with Permanent Production Key
+        run: |
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -n 1)
+          if [ -z "$APKSIGNER" ]; then
+            APKSIGNER="apksigner"
+          fi
+          echo "Using apksigner at: $APKSIGNER"
+
+          EXPECTED_SHA256="efdb3e0519604d2255101813eaf17a0986b3b10c951626735ba544a4cb4ed0d3"
+
+          for apk in build/app/outputs/flutter-apk/app-*-release.apk; do
+            echo "=========================================="
+            echo "Verifying APK: $apk"
+            "$APKSIGNER" verify --verbose "$apk"
+            CERT_INFO=$("$APKSIGNER" verify --print-certs "$apk")
+            echo "$CERT_INFO"
+
+            ACTUAL_SHA256=$(echo "$CERT_INFO" | grep -i "SHA-256 digest:" | head -n 1 | awk '{print $NF}' | tr -d ' :' | tr '[:upper:]' '[:lower:]')
+            echo "Extracted Certificate SHA-256: $ACTUAL_SHA256"
+
+            if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
+              echo "::error::Signature verification failed for $apk! Expected $EXPECTED_SHA256 but got $ACTUAL_SHA256"
+              exit 1
+            fi
+            echo "PASS: $apk verified with permanent production key."
+          done
+          echo "All release APKs successfully verified with NoteFlow production key."
+
+      - name: Clean up Release Keystore
+        if: always()
+        run: |
+          rm -f android/release.keystore
+          echo "Temporary release keystore securely removed from runner."
+
 
       - name: Upload Release APKs Artifact
         uses: actions/upload-artifact@v4

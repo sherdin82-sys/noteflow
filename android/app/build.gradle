@@ -3,6 +3,34 @@ plugins {
     id "dev.flutter.flutter-gradle-plugin"
 }
 
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file('key.properties')
+if (keystorePropertiesFile.exists()) {
+    keystorePropertiesFile.withInputStream { stream ->
+        keystoreProperties.load(stream)
+    }
+}
+
+def resolveKeystoreFile(String path) {
+    if (!path) return null
+    def f = new File(path)
+    if (f.isAbsolute()) {
+        return f
+    }
+    def rootFile = rootProject.file(path)
+    if (rootFile.exists()) return rootFile
+    def projFile = file(path)
+    if (projFile.exists()) return projFile
+    def repoFile = new File(rootProject.projectDir.parentFile, path)
+    if (repoFile.exists()) return repoFile
+    return rootFile
+}
+
+def releaseKeyStorePath = System.getenv("NOTE_FLOW_KEYSTORE_PATH") ?: keystoreProperties['storeFile']
+def releaseStorePassword = System.getenv("NOTE_FLOW_KEYSTORE_PASSWORD") ?: keystoreProperties['storePassword']
+def releaseKeyAlias = System.getenv("NOTE_FLOW_KEY_ALIAS") ?: keystoreProperties['keyAlias']
+def releaseKeyPassword = System.getenv("NOTE_FLOW_KEY_PASSWORD") ?: keystoreProperties['keyPassword']
+
 android {
     namespace = "com.noteflow.app"
     compileSdk = 36
@@ -21,9 +49,23 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        release {
+            def keystoreFile = resolveKeystoreFile(releaseKeyStorePath)
+            if (keystoreFile != null && keystoreFile.exists() && releaseStorePassword && releaseKeyAlias && releaseKeyPassword) {
+                storeFile keystoreFile
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            } else if (System.getenv("CI") == "true" || System.getenv("GITHUB_ACTIONS") == "true") {
+                throw new GradleException("Release signing credentials missing or keystore file not found in CI environment. Path: '${releaseKeyStorePath}', file: '${keystoreFile}'. Release builds must be signed with the permanent release key.")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            signingConfig = signingConfigs.debug
+            signingConfig = signingConfigs.release
             minifyEnabled = false
             shrinkResources = false
         }
@@ -43,3 +85,4 @@ dependencies {
     implementation "androidx.activity:activity-ktx:1.9.0"
     implementation "androidx.fragment:fragment-ktx:1.7.0"
 }
+

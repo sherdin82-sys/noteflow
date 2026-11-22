@@ -24,6 +24,12 @@ migrate_working_dir/
 **/android/gradlew.bat
 **/android/local.properties
 **/android/**/GeneratedPluginRegistrant.java
+*.keystore
+*.jks
+*.p12
+key.properties
+**/android/key.properties
+**/signing_credentials.env
 
 # Flutter/Dart/Pub related
 **/doc/api/
