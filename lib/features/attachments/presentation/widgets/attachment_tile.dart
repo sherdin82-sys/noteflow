@@ -369,12 +369,18 @@ class AttachmentTile extends ConsumerWidget {
 
   static IconData _getCategoryIcon(AttachmentCategory category, String ext) {
     final lowerExt = ext.toLowerCase();
-    if (lowerExt == 'pdf') return Icons.picture_as_pdf_rounded;
-    if (lowerExt == 'doc' || lowerExt == 'docx')
+    if (lowerExt == 'pdf') {
+      return Icons.picture_as_pdf_rounded;
+    }
+    if (lowerExt == 'doc' || lowerExt == 'docx') {
       return Icons.description_rounded;
-    if (lowerExt == 'xls' || lowerExt == 'xlsx' || lowerExt == 'csv')
+    }
+    if (lowerExt == 'xls' || lowerExt == 'xlsx' || lowerExt == 'csv') {
       return Icons.table_chart_rounded;
-    if (lowerExt == 'txt') return Icons.text_snippet_rounded;
+    }
+    if (lowerExt == 'txt') {
+      return Icons.text_snippet_rounded;
+    }
 
     switch (category) {
       case AttachmentCategory.image:
@@ -392,11 +398,18 @@ class AttachmentTile extends ConsumerWidget {
 
   static Color _getCategoryColor(AttachmentCategory category, String ext) {
     final lowerExt = ext.toLowerCase();
-    if (lowerExt == 'pdf') return const Color(0xFFEF4444);
-    if (lowerExt == 'doc' || lowerExt == 'docx') return const Color(0xFF2563EB);
-    if (lowerExt == 'xls' || lowerExt == 'xlsx' || lowerExt == 'csv')
+    if (lowerExt == 'pdf') {
+      return const Color(0xFFEF4444);
+    }
+    if (lowerExt == 'doc' || lowerExt == 'docx') {
+      return const Color(0xFF2563EB);
+    }
+    if (lowerExt == 'xls' || lowerExt == 'xlsx' || lowerExt == 'csv') {
       return const Color(0xFF10B981);
-    if (lowerExt == 'txt') return const Color(0xFF64748B);
+    }
+    if (lowerExt == 'txt') {
+      return const Color(0xFF64748B);
+    }
 
     switch (category) {
       case AttachmentCategory.image:

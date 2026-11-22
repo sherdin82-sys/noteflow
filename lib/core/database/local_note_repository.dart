@@ -215,10 +215,12 @@ class LocalNoteRepository implements NoteRepository {
             await _cleanStagingDirs(documentsBasePath);
             if (await safetyBak.exists()) await safetyBak.delete();
           } else if (phase == 'new_directory_moved') {
-            if (await liveAttDir.exists())
+            if (await liveAttDir.exists()) {
               await liveAttDir.delete(recursive: true);
-            if (await liveVoiceDir.exists())
+            }
+            if (await liveVoiceDir.exists()) {
               await liveVoiceDir.delete(recursive: true);
+            }
             await _restoreRollbackDirs(documentsBasePath);
             if (await safetyBak.exists()) {
               await safetyBak.copy(dataFile.path);

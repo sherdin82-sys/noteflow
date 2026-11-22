@@ -7871,6 +7871,13 @@ Future<void> main() async {
       'Suite 41 Check 11: Thumbnail delete button triggers onDelete callback independently without triggering onTap preview',
     );
 
+    // Simulate tapping thumbnail body
+    onTap();
+    expect(
+      previewTapTriggered == true,
+      'Suite 41 Check 11b: Tapping thumbnail card triggers preview onTap handler',
+    );
+
     // Check 12: End-to-end multi-image persistence & delete cascade
     final stagingPng = File('${s41TempDir.path}/photo.png');
     stagingPng.writeAsBytesSync(
@@ -7911,6 +7918,7 @@ Future<void> main() async {
 
     expect(
       imageAttachments.length == 3 &&
+          webpAttachment != null &&
           imageAttachments.any((a) => a.fileExtension == 'jpg') &&
           imageAttachments.any((a) => a.fileExtension == 'png') &&
           imageAttachments.any((a) => a.fileExtension == 'webp'),
@@ -7934,7 +7942,7 @@ Future<void> main() async {
   }
 
   stdout.writeln(
-      'ALL NOTEFLOW TESTS PASSED! (593/593 Assertions across 41 Suites) ✓');
+      'ALL NOTEFLOW TESTS PASSED! (594/594 Assertions across 41 Suites) ✓');
 }
 
 enum _TestPlaybackStatus { idle, loading, playing, paused, completed, error }
