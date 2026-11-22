@@ -29,7 +29,7 @@ def resolveKeystoreFile(String path) {
 def releaseKeyStorePath = System.getenv("NOTE_FLOW_KEYSTORE_PATH") ?: keystoreProperties['storeFile']
 def releaseStorePassword = System.getenv("NOTE_FLOW_KEYSTORE_PASSWORD") ?: keystoreProperties['storePassword']
 def releaseKeyAlias = System.getenv("NOTE_FLOW_KEY_ALIAS") ?: keystoreProperties['keyAlias']
-def releaseKeyPassword = System.getenv("NOTE_FLOW_KEY_PASSWORD") ?: keystoreProperties['keyPassword']
+def releaseKeyPassword = System.getenv("NOTE_FLOW_KEY_PASSWORD") ?: keystoreProperties['keyPassword'] ?: releaseStorePassword
 
 android {
     namespace = "com.noteflow.app"
